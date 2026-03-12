@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"from presidio_analyzer import AnalyzerEngine; a = AnalyzerEngine\\(\\); r = a.analyze\\(text='SSN is 123-45-6789', language='en'\\); print\\([\\(x.entity_type, x.score, x.start, x.end\\) for x in r]\\)\")",
+      "Bash(python3 -m pytest tests/test_attack_battery.py::TestAttack6PIIExfiltration::test_model_returns_pii -x -q --tb=long -p no:warnings 2>&1 | tail -40)",
+      "Bash(python3 -m pytest tests/test_attack_battery.py::TestAttack6PIIExfiltration::test_model_returns_pii -x -q --tb=short -p no:warnings 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings 2>&1 | tail -20)",
+      "Bash(python3 -m pytest tests/test_output.py::TestPIIRedactor::test_benign_output_not_redacted tests/test_attack_battery.py::TestAttack12OutputPIILeakage::test_ssn_in_model_response tests/test_output_enhanced.py::TestCascadeEscalation::test_no_escalation_on_clean tests/test_pii_hardened.py::TestURLEmbeddedPII::test_redactor_catches_url_ssn tests/test_pii_hardened.py::TestExistingPIIUnchanged::test_benign_text_clean -x -q --tb=long -p no:warnings 2>&1 | tail -60)",
+      "Bash(AEGIS_SKIP_MODEL_LOAD=true PYTHONPATH=/home/jeremy python3 << 'PYEOF'\nfrom aegis.layers.output.pii_redactor import PIIRedactor\n\nr = PIIRedactor\\(\\)\ntexts = [\n    'The theory of relativity was proposed by Albert Einstein in 1905.',\n    'The quarterly report shows a 15% increase in revenue.',\n]\nfor text in texts:\n    if r.is_presidio_available:\n        results = r._presidio_analyzer.analyze\\(text=text, language='en', score_threshold=0.3\\)\n        for res in results:\n            print\\(f\"{res.entity_type} -> {repr\\(text[res.start:res.end]\\)} score={res.score}\"\\)\n    print\\('---'\\)\nPYEOF)",
+      "Bash(python3 -m pytest tests/test_output.py::TestPIIRedactor::test_benign_output_not_redacted tests/test_attack_battery.py::TestAttack12OutputPIILeakage::test_ssn_in_model_response tests/test_output_enhanced.py::TestCascadeEscalation::test_no_escalation_on_clean tests/test_pii_hardened.py::TestURLEmbeddedPII::test_redactor_catches_url_ssn tests/test_pii_hardened.py::TestExistingPIIUnchanged::test_benign_text_clean tests/test_attack_battery.py::TestAttack6PIIExfiltration::test_model_returns_pii -q --tb=short -p no:warnings 2>&1 | tail -10)",
+      "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings 2>&1 | tail -15)"
+    ]
+  }
+}

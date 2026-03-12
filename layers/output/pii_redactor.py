@@ -154,6 +154,18 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 _REGEX_PATTERNS: list[tuple[re.Pattern, str]] = _PII_PATTERNS + _SECRET_PATTERNS
 
+# Presidio entity types that represent actual PII risks worth redacting.
+# General NER entities (PERSON, DATE_TIME, LOCATION, NRP) produce too many
+# false positives in AI output and are excluded.
+_PRESIDIO_PII_ENTITY_TYPES: set[str] = {
+    "US_SSN", "CREDIT_CARD", "PHONE_NUMBER", "EMAIL_ADDRESS", "IP_ADDRESS",
+    "IBAN_CODE", "US_BANK_NUMBER", "US_PASSPORT", "US_DRIVER_LICENSE",
+    "MEDICAL_LICENSE", "CRYPTO",
+    # Custom secret recognizer types registered by _register_secret_recognizers
+    "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "GITHUB_TOKEN", "CONNECTION_STRING", "PRIVATE_KEY", "GENERIC_SECRET",
+}
+
 # Placeholder map
 _PLACEHOLDERS = {
     "PERSON": "[PERSON_NAME]",
@@ -297,7 +309,12 @@ class PIIRedactor:
         return result
 
     def _redact_presidio(self, text: str) -> RedactionResult:
-        """Redact using Presidio analyzer."""
+        """Redact using Presidio analyzer supplemented by regex patterns.
+
+        Presidio may miss certain PII formats (e.g. SSNs without context).
+        Regex patterns always run as a safety net. When both detect the same
+        span, the higher-confidence detection wins.
+        """
         try:
             results = self._presidio_analyzer.analyze(
                 text=text,
@@ -307,6 +324,10 @@ class PIIRedactor:
 
             detections = []
             for r in results:
+                # Only accept entity types that represent actual PII risks.
+                # General NER (PERSON, DATE_TIME, LOCATION) causes FPs in AI output.
+                if r.entity_type not in _PRESIDIO_PII_ENTITY_TYPES:
+                    continue
                 detections.append(PIIDetection(
                     entity_type=r.entity_type,
                     start=r.start,
@@ -314,6 +335,29 @@ class PIIRedactor:
                     score=r.score,
                     text=text[r.start:r.end],
                 ))
+
+            # Always run regex patterns as a safety net — Presidio may miss
+            # certain formats (e.g. bare SSNs without surrounding context).
+            for pattern, entity_type in _REGEX_PATTERNS:
+                for match in pattern.finditer(text):
+                    if entity_type == "CREDIT_CARD":
+                        digits = re.sub(r"[-\s]", "", match.group())
+                        if not _luhn_check(digits):
+                            continue
+                    # Skip if Presidio already found a detection overlapping this span
+                    m_start, m_end = match.start(), match.end()
+                    already_covered = any(
+                        d.start <= m_start and d.end >= m_end
+                        for d in detections
+                    )
+                    if not already_covered:
+                        detections.append(PIIDetection(
+                            entity_type=entity_type,
+                            start=m_start,
+                            end=m_end,
+                            score=0.85,
+                            text=match.group(),
+                        ))
 
             return self._apply_redactions(text, detections, used_presidio=True)
         except Exception as e:
