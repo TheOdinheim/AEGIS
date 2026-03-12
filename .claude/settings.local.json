@@ -35,7 +35,10 @@
       "Bash(python3 -m pytest tests/ -x -q --tb=short -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1)",
       "Bash(while ! grep -q 'passed\\\\|failed\\\\|error' /tmp/claude-1000/-home-jeremy-aegis/886e7a97-2efd-400f-8a85-15e9b8948d4c/tasks/b1hi35rcv.output 2>/dev/null; do sleep 3; done; tail -5 /tmp/claude-1000/-home-jeremy-aegis/886e7a97-2efd-400f-8a85-15e9b8948d4c/tasks/b1hi35rcv.output)",
       "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1 | tail -10)",
-      "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark 2>&1 | tail -5)"
+      "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark 2>&1 | tail -5)",
+      "Bash(pip install:*)",
+      "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_multimodal_apt.py -v --tb=no -p no:warnings 2>&1 | grep -c \"PASSED\")"
     ]
   }
 }

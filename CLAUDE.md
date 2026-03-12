@@ -181,6 +181,7 @@ aegis/
 │   ├── test_multimodal_audio.py       # Multimodal Phase 3: audio transcription, spectral analysis, WaveGuard, sanitization (55 tests)
 │   ├── test_cross_modal.py            # Multimodal Phase 4: cross-modal correlation, tool use scanning (46 tests)
 │   ├── test_multimodal_integration.py # Multimodal Phase 4: end-to-end integration via TestClient (12 tests)
+│   ├── test_multimodal_apt.py         # Multimodal APT: payload gen, adaptive attacker, behavior validation, integration (59 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -205,6 +206,15 @@ aegis/
 │   ├── report.py                    # RedTeamReport: JSON + markdown assessment reports
 │   ├── apt_campaigns.py             # 6 APT campaigns: PHANTOM NEEDLE, SILENT SIPHON, SLOW BURN, HYDRA, GHOST PROTOCOL, CASCADING FAILURE
 │   ├── run_red_team.py              # Entry point: python3 -m red_team.run_red_team
+│   ├── multimodal_apt/              # Multimodal APT stress test framework
+│   │   ├── __init__.py              # Data models: AttackPayload, AttackResult, CampaignResult, MultimodalAPTAssessment
+│   │   ├── payload_factory.py       # 89 attacks: 25 image + 20 document + 12 audio + 20 cross-modal + 12 tool
+│   │   ├── adaptive_attacker.py     # AdaptiveMultimodalAttacker: response analysis, mutation, 3-round adaptation
+│   │   ├── cross_modal_attacks.py   # OpenAI message builders for multimodal content
+│   │   ├── model_behavior_validator.py # Validates if evaded attacks influenced model output
+│   │   ├── live_campaign_runner.py  # LiveCampaignRunner: Campaigns 13-19 via real HTTP
+│   │   ├── report.py               # MultimodalAPTReport: JSON + markdown assessment
+│   │   └── run_multimodal_apt.py    # CLI: python3 -m red_team.multimodal_apt.run_multimodal_apt
 │   ├── extended_campaigns.py        # Phase 4: Campaigns 7-12 (SHAPESHIFTER, BABEL TOWER, THOUSAND CUTS, INSIDE JOB, MIRROR MIRROR, FULL SPECTRUM)
 │   ├── infrastructure/              # Phase 5: Infrastructure security attack engine
 │   │   ├── __init__.py              # AttackResult, InfrastructureAssessment dataclasses
@@ -351,7 +361,7 @@ APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/pa
 
 ## Current Metrics (as of 2026-03-12)
 
-- Tests: 2038 passing, 0 failed, 6 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2159 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
 - Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)
 - Infrastructure security: 60 tests across 8 attack modules (Phase 5)
