@@ -298,6 +298,34 @@ MULTIMODAL_AUDIO_TRANSCRIPTION_LATENCY = Histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Cross-modal correlation metrics
+# ---------------------------------------------------------------------------
+
+CROSS_MODAL_LAUNDERING_DETECTED = Counter(
+    "aegis_cross_modal_laundering_detected_total",
+    "Cross-modal laundering detections (injection in media, clean text)",
+)
+
+CROSS_MODAL_INCONSISTENCY = Counter(
+    "aegis_cross_modal_inconsistency_total",
+    "Cross-modal semantic inconsistency detections",
+)
+
+# ---------------------------------------------------------------------------
+# Tool use security metrics
+# ---------------------------------------------------------------------------
+
+TOOL_DEFINITION_THREATS = Counter(
+    "aegis_tool_definition_threats_total",
+    "Tool definition injection threats detected",
+)
+
+TOOL_CHAIN_ANOMALIES = Counter(
+    "aegis_tool_chain_anomalies_total",
+    "Suspicious tool chain sequences detected",
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 

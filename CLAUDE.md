@@ -91,7 +91,9 @@ aegis/
 │   │   ├── spectral_analyzer.py     # FFT spectral analysis: ultrasonic, infrasonic, entropy, bursts
 │   │   ├── audio_sanitizer.py       # WaveGuard re-encoding: bandpass filter + WAV normalization
 │   │   ├── audio_scanner.py         # L2: format/size/duration validation, spectral, transcribe→regex
-│   │   └── audio_analyzer.py        # L3: WaveGuard comparison, injection classifier, cross-modal
+│   │   ├── audio_analyzer.py        # L3: WaveGuard comparison, injection classifier, cross-modal
+│   │   ├── cross_modal_engine.py    # Cross-modal correlation: laundering, inconsistency, escalation, volume
+│   │   └── tool_use_scanner.py      # Tool use security: definition scanning, chain analysis, output scanning
 │   └── agent_security/
 │       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
 │       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
@@ -177,6 +179,8 @@ aegis/
 │   ├── test_multimodal_image.py       # Multimodal Phase 1: image scanning, OCR, steganalysis, sanitization
 │   ├── test_multimodal_document.py    # Multimodal Phase 2: document scanning, text extraction, hidden content
 │   ├── test_multimodal_audio.py       # Multimodal Phase 3: audio transcription, spectral analysis, WaveGuard, sanitization (55 tests)
+│   ├── test_cross_modal.py            # Multimodal Phase 4: cross-modal correlation, tool use scanning (46 tests)
+│   ├── test_multimodal_integration.py # Multimodal Phase 4: end-to-end integration via TestClient (12 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)

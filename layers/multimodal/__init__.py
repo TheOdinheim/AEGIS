@@ -47,6 +47,8 @@ from aegis.layers.multimodal.spectral_analyzer import SpectralAnalyzer, Spectral
 from aegis.layers.multimodal.audio_sanitizer import AudioSanitizer, AudioSanitizationReport
 from aegis.layers.multimodal.audio_scanner import AudioScanner, AudioScanReport
 from aegis.layers.multimodal.audio_analyzer import AudioAnalyzer, AudioAnalysisReport
+from aegis.layers.multimodal.cross_modal_engine import CrossModalCorrelationEngine, CrossModalReport
+from aegis.layers.multimodal.tool_use_scanner import ToolUseScanner, ToolUseScanReport, ChainAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -600,4 +602,9 @@ __all__ = [
     "AudioScanReport",
     "AudioAnalyzer",
     "AudioAnalysisReport",
+    "CrossModalCorrelationEngine",
+    "CrossModalReport",
+    "ToolUseScanner",
+    "ToolUseScanReport",
+    "ChainAnalysisResult",
 ]

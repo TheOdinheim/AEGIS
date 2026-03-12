@@ -29,7 +29,13 @@
       "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1 | tail -15)",
       "Bash(python3 -m pytest tests/ -q --tb=no -p no:warnings --ignore=tests/benchmark 2>&1 | tail -5)",
       "Bash(python3 -m pytest tests/test_multimodal_audio.py -v --tb=short -p no:warnings 2>&1)",
-      "Bash(python3 -m pytest tests/test_tenant.py::TestTenantManagerResolve::test_resolve_from_db tests/test_tenant.py::TestTenantManagerLoadAll::test_load_all_from_db tests/test_tenant.py::TestTenantAuditQuery::test_get_tenant_audit_log_from_db -q --tb=line -p no:warnings 2>&1 | tail -5)"
+      "Bash(python3 -m pytest tests/test_tenant.py::TestTenantManagerResolve::test_resolve_from_db tests/test_tenant.py::TestTenantManagerLoadAll::test_load_all_from_db tests/test_tenant.py::TestTenantAuditQuery::test_get_tenant_audit_log_from_db -q --tb=line -p no:warnings 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_cross_modal.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_cross_modal.py tests/test_multimodal_integration.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/ -x -q --tb=short -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1)",
+      "Bash(while ! grep -q 'passed\\\\|failed\\\\|error' /tmp/claude-1000/-home-jeremy-aegis/886e7a97-2efd-400f-8a85-15e9b8948d4c/tasks/b1hi35rcv.output 2>/dev/null; do sleep 3; done; tail -5 /tmp/claude-1000/-home-jeremy-aegis/886e7a97-2efd-400f-8a85-15e9b8948d4c/tasks/b1hi35rcv.output)",
+      "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1 | tail -10)",
+      "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark 2>&1 | tail -5)"
     ]
   }
 }

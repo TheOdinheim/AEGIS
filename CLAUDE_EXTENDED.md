@@ -329,3 +329,63 @@ Voice-enabled AI models (GPT-4o voice, Gemini, Qwen2.5-Omni) process audio along
 - `aegis_multimodal_audio_transcription_latency_seconds` (Histogram)
 
 **Tests**: `tests/test_multimodal_audio.py` — 55 tests covering transcription, spectral analysis, sanitization, scanner integration, WaveGuard comparison, preprocessor integration, config, and metrics.
+
+### Phase 4 — Cross-Modal Correlation & Tool Use Security (Complete)
+
+Cross-modal attacks exploit the shared semantic space between modalities. An image containing injection text combined with a benign text prompt creates a compound attack that neither image-only nor text-only scanners catch individually. Tool use attacks exploit function calling as a distinct jailbreak vector.
+
+**Cross-Modal Correlation Engine** (`layers/multimodal/cross_modal_engine.py`):
+
+Four correlation checks run after all per-modality scans complete:
+
+| Check | Description | Confidence |
+|-------|-------------|------------|
+| **Modality laundering** | Text prompt is clean but media (image/document/audio) contains injection. Amplification factor applied to media confidence. | Base × 1.5 (configurable) |
+| **Semantic inconsistency** | Keyword overlap between text prompt and extracted media text is below threshold (default 0.1), combined with media threats. | 0.6–0.85 |
+| **Progressive escalation** | Session starts text-only, then introduces media with rising threat scores. Detected via per-session modality history (10 turns). | 0.5–0.80 |
+| **Volume anomaly** | Excessive attachments: >5 images, >3 documents, or >2 audio files per request. | 0.70 |
+
+`CrossModalCorrelationEngine.correlate()` takes text scan result, per-modality scan results, extracted text, session ID, and media counts. Returns `CrossModalReport` with `should_block`, `max_confidence`, `is_threat` properties.
+
+**Tool Use Scanner** (`layers/multimodal/tool_use_scanner.py`):
+
+Three scanning capabilities:
+
+| Capability | Function | Detection |
+|-----------|----------|-----------|
+| **Definition scanning** | Scans function names, descriptions, and parameter descriptions against 10 compiled injection patterns | Confidence ≥ 0.90 |
+| **Chain analysis** | Tracks per-session tool call sequences. Flags suspicious chains: search/retrieval → code execution, file read → any dangerous tool | Confidence 0.75 |
+| **Output scanning** | Scans tool-role messages for injection patterns (search results containing prompt injection) | Confidence ≥ 0.85 |
+
+`ToolUseScanner` supports optional `regex_engine` for additional pattern matching. Per-session chain history kept to 20 calls. Session cleanup via `clear_session()`.
+
+**Configuration** (env vars):
+- `AEGIS_MULTIMODAL_CROSS_MODAL_ENABLED` (default: true)
+- `AEGIS_MULTIMODAL_TOOL_DEFINITION_SCANNING` (default: true)
+- `AEGIS_MULTIMODAL_TOOL_OUTPUT_SCANNING` (default: true)
+
+**Metrics**:
+- `aegis_cross_modal_laundering_detected_total` (Counter)
+- `aegis_cross_modal_inconsistency_total` (Counter)
+- `aegis_tool_definition_threats_total` (Counter)
+- `aegis_tool_chain_anomalies_total` (Counter)
+
+**Tests**: `tests/test_cross_modal.py` — 46 tests (laundering 5, inconsistency 4, escalation 3, volume 3, report 5, definition scanning 7, chain analysis 6, output scanning 5, report 3, keywords 4). `tests/test_multimodal_integration.py` — 12 end-to-end integration tests via TestClient (image/audio/tool use pipeline, cross-modal standalone, config, metrics).
+
+### Multimodal Priority Matrix
+
+| Attack Vector | Detection Layer | Module | Confidence |
+|---|---|---|---|
+| Text in image (OCR injection) | L2 Innate | ImageScanner → regex_engine | 0.85+ |
+| Steganographic payload | L2 Innate | Steganalyzer | 0.70+ |
+| Adversarial image perturbation | L3 Adaptive | ImageAnalyzer (sanitize-compare) | 0.75+ |
+| Hidden text in document (CSS/comments) | L2 Innate | HiddenContentDetector | 0.85+ |
+| Document macro/script execution | L2 Innate | DocumentScanner | 0.90+ |
+| Polyglot file attack | L2 Innate | FormatValidator | 0.85+ |
+| Adversarial audio perturbation | L3 Adaptive | AudioAnalyzer (WaveGuard) | 0.75+ |
+| Ultrasonic/infrasonic injection | L2 Innate | SpectralAnalyzer | 0.80+ |
+| Cross-modal laundering | Post-scan | CrossModalCorrelationEngine | 0.85+ (amplified) |
+| Semantic inconsistency | Post-scan | CrossModalCorrelationEngine | 0.60–0.85 |
+| Tool definition injection | Pre-scan | ToolUseScanner | 0.90+ |
+| Tool chain attack | Pre-scan | ToolUseScanner | 0.75 |
+| Tool output injection | Pre-scan | ToolUseScanner | 0.85+ |

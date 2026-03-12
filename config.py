@@ -629,6 +629,22 @@ class MultimodalConfig(BaseSettings):
         description="Maximum audio duration in seconds (default 30 minutes)",
     )
 
+    # --- Cross-modal correlation ---
+    cross_modal_enabled: bool = Field(
+        default=True,
+        description="Enable cross-modal correlation engine (laundering, inconsistency, escalation, volume)",
+    )
+
+    # --- Tool use security ---
+    tool_definition_scanning: bool = Field(
+        default=True,
+        description="Scan function/tool definitions for injection patterns",
+    )
+    tool_output_scanning: bool = Field(
+        default=True,
+        description="Scan tool output messages for injection patterns",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Global Platform Configuration
