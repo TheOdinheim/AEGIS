@@ -557,14 +557,17 @@ class FederatedConfig(BaseSettings):
 # ---------------------------------------------------------------------------
 
 class MultimodalConfig(BaseSettings):
-    """Multimodal Security — Image scanning and text extraction.
+    """Multimodal Security — Image scanning, document scanning, text extraction.
 
-    Defends against: Prompt injections embedded in images, steganographic
-    payloads, metadata-based attacks, adversarial image perturbations.
+    Defends against: Prompt injections embedded in images or documents,
+    steganographic payloads, metadata-based attacks, adversarial image
+    perturbations, hidden text injection in documents, polyglot files,
+    macro-enabled documents.
 
-    Assumes compromised: L1 Barrier. Images in multimodal requests may
-    contain injections that bypass text-only L2 scanners. This layer
-    extracts text from images and feeds it through the existing pipeline.
+    Assumes compromised: L1 Barrier. Images and documents in multimodal
+    requests may contain injections that bypass text-only L2 scanners.
+    This layer extracts text from all media and feeds it through the
+    existing pipeline.
     """
     model_config = {"env_prefix": "AEGIS_MULTIMODAL_"}
 
@@ -589,6 +592,25 @@ class MultimodalConfig(BaseSettings):
         default=10,
         ge=1,
         description="Maximum number of images per request",
+    )
+
+    # --- Document scanning ---
+    document_scanning_enabled: bool = Field(
+        default=True,
+        description="Enable document scanning for base64-encoded file attachments",
+    )
+    document_max_size_mb: float = Field(
+        default=50.0,
+        ge=0.1,
+        description="Maximum document size in megabytes before rejection",
+    )
+    document_block_macros: bool = Field(
+        default=True,
+        description="Block documents containing VBA macros or PDF JavaScript",
+    )
+    document_block_scripts: bool = Field(
+        default=True,
+        description="Block documents containing embedded script bodies (e.g. <script> tags)",
     )
 
 

@@ -256,6 +256,27 @@ MULTIMODAL_SCAN_LATENCY = Histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Multimodal document metrics
+# ---------------------------------------------------------------------------
+
+MULTIMODAL_DOCUMENTS_SCANNED = Counter(
+    "aegis_multimodal_documents_scanned_total",
+    "Total documents scanned by multimodal document scanner",
+)
+
+MULTIMODAL_HIDDEN_CONTENT_DETECTED = Counter(
+    "aegis_multimodal_hidden_content_detected_total",
+    "Documents with hidden content (injection, metadata, comments) detected",
+    ["surface"],
+)
+
+MULTIMODAL_DOCUMENT_THREATS = Counter(
+    "aegis_multimodal_document_threats_detected_total",
+    "Document-specific threats detected",
+    ["threat_type"],
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 
