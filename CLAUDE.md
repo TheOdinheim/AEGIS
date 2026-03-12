@@ -74,6 +74,24 @@ aegis/
 │   │   ├── serialization.py         # Stage 2: Format risk scoring, pickle-in-ZIP, ONNX/SafeTensors validation
 │   │   ├── dependency_audit.py      # Stage 3: CVE matching + SBOM generation
 │   │   └── behavioral_probe.py      # Stage 4: 10 jailbreak probes, sleeper agent detection, divergence
+│   ├── multimodal/
+│   │   ├── __init__.py              # MultimodalPreprocessor: image, document, audio orchestrator
+│   │   ├── image_scanner.py         # L2: format validation, OCR, metadata, steganalysis
+│   │   ├── image_analyzer.py        # L3: sanitize-compare, adversarial heuristics
+│   │   ├── ocr_engine.py            # Pillow heuristic + tesseract OCR
+│   │   ├── image_sanitizer.py       # Re-encode to strip steganographic payloads
+│   │   ├── steganalysis.py          # Chi-square LSB + RS analysis
+│   │   ├── metadata_stripper.py     # EXIF/XMP/IPTC extraction
+│   │   ├── document_scanner.py      # L2: document format validation, text extraction, hidden content
+│   │   ├── document_analyzer.py     # L3: DeBERTa + semantic search on extracted text
+│   │   ├── text_extractor.py        # Format-aware text extraction (PDF, HTML, Office, etc.)
+│   │   ├── hidden_content_detector.py # Invisible CSS, comments, zero-width, macros, scripts
+│   │   ├── format_validator.py      # Magic bytes, polyglot detection, size limits
+│   │   ├── audio_transcriber.py     # Multi-backend audio-to-text (Whisper, speech_recognition, fallback)
+│   │   ├── spectral_analyzer.py     # FFT spectral analysis: ultrasonic, infrasonic, entropy, bursts
+│   │   ├── audio_sanitizer.py       # WaveGuard re-encoding: bandpass filter + WAV normalization
+│   │   ├── audio_scanner.py         # L2: format/size/duration validation, spectral, transcribe→regex
+│   │   └── audio_analyzer.py        # L3: WaveGuard comparison, injection classifier, cross-modal
 │   └── agent_security/
 │       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
 │       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
@@ -156,6 +174,9 @@ aegis/
 │   ├── test_infrastructure_security.py # Phase 5: infrastructure security (auth, rate limit, tenant, DoS, audit, federated, supply chain) (60 tests)
 │   ├── test_adaptive_red_team.py      # Phase 6: adaptive meta-learner (data models, blind spots, predictor, co-evolution, fingerprints, hardening, pipeline) (63 tests)
 │   ├── test_hardening_regression.py   # Phase 6: hardening regression (char mappings, regex patterns, PII patterns, convergence, plan integration) (32 tests)
+│   ├── test_multimodal_image.py       # Multimodal Phase 1: image scanning, OCR, steganalysis, sanitization
+│   ├── test_multimodal_document.py    # Multimodal Phase 2: document scanning, text extraction, hidden content
+│   ├── test_multimodal_audio.py       # Multimodal Phase 3: audio transcription, spectral analysis, WaveGuard, sanitization (55 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -324,9 +345,10 @@ Red team tests: python3 -m pytest tests/test_red_team.py -v --tb=short
 Red team regression tests: python3 -m pytest tests/test_red_team_regression.py -v --tb=short
 APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/parent:/path/to/aegis)
 
-## Current Metrics (as of 2026-03-10)
+## Current Metrics (as of 2026-03-12)
 
-- Tests: 1872 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2038 passing, 0 failed, 6 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)
 - Infrastructure security: 60 tests across 8 attack modules (Phase 5)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
@@ -352,6 +374,9 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_MODEL — model name for upstream (e.g., llama3.2:3b for Ollama)
 - AEGIS_POLICY_BACKEND — policy engine backend: 'python' (default) or 'opa'
 - AEGIS_POLICY_OPA_URL — OPA server URL (default: http://localhost:8181)
+- AEGIS_MULTIMODAL_AUDIO_SCANNING_ENABLED — enable audio security scanning (default: true)
+- AEGIS_MULTIMODAL_AUDIO_MAX_SIZE_MB — max audio file size in MB (default: 100)
+- AEGIS_MULTIMODAL_AUDIO_MAX_DURATION_SECONDS — max audio duration in seconds (default: 1800)
 - REDIS_URL — Redis connection URL (redis://host:port/db). When set, enables Redis-backed rate limiting and Redis Streams event bus. When unset, falls back to in-memory implementations.
 - DATABASE_URL — PostgreSQL connection URL (postgresql://user:pass@host:port/db). When set, enables persistent audit logging, threat indicator storage, and signature persistence. When unset, AEGIS runs without PostgreSQL (JSONL audit only, in-memory vault).
 

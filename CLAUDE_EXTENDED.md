@@ -287,4 +287,45 @@ python3 -m red_team.adaptive.run_adaptive [--rounds 10] [--attacks-per-round 20]
 
 ## Multimodal Security
 
-*Placeholder for incoming Phase 1-4 multimodal security work. This section will cover image/audio/video input validation, multimodal injection detection, cross-modal attack vectors, and multimodal output safety.*
+### Phase 1 — Image Security (Complete)
+
+Image scanning via `layers/multimodal/`: OCR text extraction (Pillow heuristic + tesseract fallback), EXIF/XMP metadata stripping, LSB steganalysis (chi-square + RS analysis), perceptual hashing, image sanitization (re-encode to strip steganographic payloads), adversarial perturbation heuristics. Orchestrated by `ImageScanner` (L2 fast path, <10ms) and `ImageAnalyzer` (L3 slow path, sanitize-and-compare pixel difference).
+
+### Phase 2 — Document Security (Complete)
+
+Document scanning: `DocumentTextExtractor` (PDF, HTML, Markdown, JSON, CSV, XML, YAML, Office formats via format-aware parsing), `HiddenContentDetector` (invisible CSS, HTML comments, zero-width chars, metadata injection, PDF JavaScript, VBA macros), `FormatValidator` (magic bytes, polyglot detection, size limits). `DocumentScanner` (L2) and `DocumentAnalyzer` (L3 with DeBERTa + semantic search).
+
+### Phase 3 — Audio Security (Complete)
+
+Voice-enabled AI models (GPT-4o voice, Gemini, Qwen2.5-Omni) process audio alongside text. Research shows adversarial audio perturbations achieve 80-100% attack success rates against commercial ASR systems. WhisperInject demonstrates benign-sounding audio that covertly induces harmful text generation with 86%+ success.
+
+**Defense principle**: Transcribe audio to text → feed through existing L2/L3 text detection. Additionally, spectral analysis detects adversarial perturbations, and audio sanitization via re-encoding destroys them.
+
+**Modules** (`layers/multimodal/`):
+
+| Module | Class | Function |
+|--------|-------|----------|
+| `audio_transcriber.py` | `AudioTranscriber` | Multi-backend transcription: Whisper → speech_recognition → unavailable. Format detection by magic bytes (WAV, MP3, FLAC, OGG, WebM). WAV duration parsing from header. |
+| `spectral_analyzer.py` | `SpectralAnalyzer` | FFT-based spectral analysis. Detects: ultrasonic (>20kHz, inaudible but model-processable), infrasonic (<20Hz, hidden data), spectral entropy anomalies, spectral discontinuities (adversarial bursts via windowed centroid analysis). |
+| `audio_sanitizer.py` | `AudioSanitizer` | WaveGuard-style re-encoding: decode → low-pass filter at 16kHz (removes ultrasonic) → high-pass at 80Hz (removes infrasonic) → re-encode as 16kHz 16-bit mono WAV. Destroys encoding-specific adversarial artifacts. |
+| `audio_scanner.py` | `AudioScanner` | L2 fast path (<10ms excl. transcription): format validation, size check (<100MB), duration check (<30min), spectral analysis, transcribe → regex engine scan. |
+| `audio_analyzer.py` | `AudioAnalyzer` | L3 slow path (50-200ms): deep transcription → DeBERTa injection classifier, WaveGuard comparison (sanitize, re-transcribe, word-level edit distance divergence > 0.1 = adversarial), full spectral analysis, cross-modal consistency check. |
+
+**WaveGuard Comparison**: Sanitize audio by re-encoding → transcribe both original and sanitized → compute word-level edit distance / total words. If divergence > 0.1 → flag as potential adversarial audio. Clean audio produces identical transcriptions; adversarial perturbations are destroyed by re-encoding, changing the transcription.
+
+**Audio extraction from messages** (`MultimodalPreprocessor._extract_audio`): Handles three formats:
+- `{"type": "input_audio", "input_audio": {"data": "base64...", "format": "wav"}}` — OpenAI format
+- `{"type": "image_url", "image_url": {"url": "data:audio/wav;base64,..."}}` — data URI
+- `{"type": "file", "file": {"data": "base64...", "mime_type": "audio/wav"}}` — file attachment
+
+**Configuration** (env vars):
+- `AEGIS_MULTIMODAL_AUDIO_SCANNING_ENABLED` (default: true)
+- `AEGIS_MULTIMODAL_AUDIO_MAX_SIZE_MB` (default: 100)
+- `AEGIS_MULTIMODAL_AUDIO_MAX_DURATION_SECONDS` (default: 1800)
+
+**Metrics**:
+- `aegis_multimodal_audio_scanned_total` (Counter)
+- `aegis_multimodal_audio_threats_detected_total` (Counter, label: threat_type)
+- `aegis_multimodal_audio_transcription_latency_seconds` (Histogram)
+
+**Tests**: `tests/test_multimodal_audio.py` — 55 tests covering transcription, spectral analysis, sanitization, scanner integration, WaveGuard comparison, preprocessor integration, config, and metrics.

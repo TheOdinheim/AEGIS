@@ -42,6 +42,11 @@ from aegis.layers.multimodal.hidden_content_detector import (
     HiddenContentReport,
 )
 from aegis.layers.multimodal.format_validator import FormatValidator, FormatValidationResult
+from aegis.layers.multimodal.audio_transcriber import AudioTranscriber, TranscriptionResult
+from aegis.layers.multimodal.spectral_analyzer import SpectralAnalyzer, SpectralAnalysisResult
+from aegis.layers.multimodal.audio_sanitizer import AudioSanitizer, AudioSanitizationReport
+from aegis.layers.multimodal.audio_scanner import AudioScanner, AudioScanReport
+from aegis.layers.multimodal.audio_analyzer import AudioAnalyzer, AudioAnalysisReport
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +69,17 @@ _DOCUMENT_MIME_PREFIXES = (
     "text/yaml",
 )
 
+_AUDIO_MIME_PREFIXES = (
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/flac",
+    "audio/ogg",
+    "audio/webm",
+    "audio/opus",
+)
+
 
 def _is_document_mime(mime: str) -> bool:
     """Return True if the MIME type indicates a document (not an image)."""
@@ -76,6 +92,12 @@ def _is_image_mime(mime: str) -> bool:
     return mime.lower().startswith("image/")
 
 
+def _is_audio_mime(mime: str) -> bool:
+    """Return True if the MIME type indicates audio content."""
+    lower = mime.lower()
+    return any(lower.startswith(prefix) for prefix in _AUDIO_MIME_PREFIXES)
+
+
 @dataclass
 class MultimodalScanReport:
     """Aggregated report from multimodal preprocessing."""
@@ -83,21 +105,25 @@ class MultimodalScanReport:
     images_scanned: int = 0
     documents_found: int = 0
     documents_scanned: int = 0
+    audio_found: int = 0
+    audio_scanned: int = 0
     image_reports: list[ImageScanReport] = field(default_factory=list)
     document_scan_results: list[ScanResult] = field(default_factory=list)
+    audio_scan_results: list[ScanResult] = field(default_factory=list)
     extracted_text: str = ""
     document_extracted_text: str = ""
+    audio_extracted_text: str = ""
     scan_results: list[ScanResult] = field(default_factory=list)
     total_latency_ms: float = 0.0
 
     @property
     def should_block(self) -> bool:
-        all_results = self.scan_results + self.document_scan_results
+        all_results = self.scan_results + self.document_scan_results + self.audio_scan_results
         return any(r.is_threat and r.confidence >= 0.85 for r in all_results)
 
     @property
     def max_confidence(self) -> float:
-        all_results = self.scan_results + self.document_scan_results
+        all_results = self.scan_results + self.document_scan_results + self.audio_scan_results
         if not all_results:
             return 0.0
         return max(r.confidence for r in all_results)
@@ -109,6 +135,10 @@ class MultimodalScanReport:
     @property
     def has_documents(self) -> bool:
         return self.documents_found > 0
+
+    @property
+    def has_audio(self) -> bool:
+        return self.audio_found > 0
 
 
 class MultimodalPreprocessor:
@@ -138,6 +168,9 @@ class MultimodalPreprocessor:
         document_max_size_mb: float = 50.0,
         document_block_macros: bool = True,
         document_block_scripts: bool = True,
+        audio_scanning_enabled: bool = True,
+        audio_max_size_mb: float = 100.0,
+        audio_max_duration_seconds: float = 1800.0,
         regex_engine: object | None = None,
         injection_classifier: object | None = None,
         semantic_engine: object | None = None,
@@ -145,6 +178,7 @@ class MultimodalPreprocessor:
         self._enabled = enabled
         self._max_images = max_images_per_request
         self._document_scanning_enabled = document_scanning_enabled
+        self._audio_scanning_enabled = audio_scanning_enabled
 
         if enabled:
             self._scanner = ImageScanner(
@@ -172,6 +206,20 @@ class MultimodalPreprocessor:
             self._doc_scanner = None
             self._doc_analyzer = None
 
+        if audio_scanning_enabled:
+            self._audio_scanner = AudioScanner(
+                max_audio_size_bytes=int(audio_max_size_mb * 1024 * 1024),
+                max_duration_seconds=audio_max_duration_seconds,
+                regex_engine=regex_engine,
+            )
+            self._audio_analyzer = AudioAnalyzer(
+                injection_classifier=injection_classifier,
+                semantic_engine=semantic_engine,
+            )
+        else:
+            self._audio_scanner = None
+            self._audio_analyzer = None
+
     @property
     def enabled(self) -> bool:
         return self._enabled
@@ -179,6 +227,10 @@ class MultimodalPreprocessor:
     @property
     def document_scanning_enabled(self) -> bool:
         return self._document_scanning_enabled
+
+    @property
+    def audio_scanning_enabled(self) -> bool:
+        return self._audio_scanning_enabled
 
     def preprocess_messages(self, messages: list[dict]) -> MultimodalScanReport:
         """Scan all images in message content arrays.
@@ -191,7 +243,7 @@ class MultimodalPreprocessor:
         Returns:
             MultimodalScanReport with extracted text and scan results.
         """
-        if not self._enabled and not self._document_scanning_enabled:
+        if not self._enabled and not self._document_scanning_enabled and not self._audio_scanning_enabled:
             return MultimodalScanReport()
 
         start = time.perf_counter()
@@ -232,6 +284,11 @@ class MultimodalPreprocessor:
         if self._document_scanning_enabled:
             documents = self._extract_documents(messages)
             report.documents_found = len(documents)
+
+        # Extract and note audio content (scanning is async)
+        if self._audio_scanning_enabled:
+            audio_items = self._extract_audio(messages)
+            report.audio_found = len(audio_items)
 
         report.total_latency_ms = (time.perf_counter() - start) * 1000
         return report
@@ -299,6 +356,44 @@ class MultimodalPreprocessor:
 
         # Analyze first image (most likely attack vector)
         return await self._analyzer.analyze(images[0])
+
+    async def scan_audio(self, messages: list[dict]) -> list[ScanResult]:
+        """L2 fast-path audio scanning (async).
+
+        Extracts base64-encoded audio from messages and scans each through
+        AudioScanner.
+        """
+        if not self._audio_scanning_enabled or not self._audio_scanner:
+            return []
+
+        audio_items = self._extract_audio(messages)
+        if not audio_items:
+            return []
+
+        results: list[ScanResult] = []
+        for audio_bytes in audio_items:
+            result = await self._audio_scanner.scan(audio_bytes)
+            results.append(result)
+        return results
+
+    async def analyze_audio(self, messages: list[dict]) -> list[ScanResult]:
+        """L3 slow-path deep audio analysis (async).
+
+        Runs each audio through AudioAnalyzer (WaveGuard comparison,
+        spectral analysis, injection classification).
+        """
+        if not self._audio_scanning_enabled or not self._audio_analyzer:
+            return []
+
+        audio_items = self._extract_audio(messages)
+        if not audio_items:
+            return []
+
+        results: list[ScanResult] = []
+        for audio_bytes in audio_items:
+            result = await self._audio_analyzer.analyze(audio_bytes)
+            results.append(result)
+        return results
 
     def _extract_images(self, messages: list[dict]) -> list[bytes]:
         """Extract base64-encoded image data from OpenAI multimodal messages."""
@@ -404,6 +499,73 @@ class MultimodalPreprocessor:
 
         return documents
 
+    def _extract_audio(self, messages: list[dict]) -> list[bytes]:
+        """Extract base64-encoded audio data from multimodal messages.
+
+        Handles:
+        - ``{"type": "input_audio", "input_audio": {"data": "base64...", "format": "wav"}}``
+        - ``{"type": "image_url", "image_url": {"url": "data:audio/wav;base64,..."}}``
+        - ``{"type": "file", "file": {"data": "base64...", "mime_type": "audio/wav"}}``
+        """
+        audio_items: list[bytes] = []
+
+        for msg in messages:
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+
+                # OpenAI input_audio format
+                if part.get("type") == "input_audio":
+                    audio_data = part.get("input_audio", {})
+                    if not isinstance(audio_data, dict):
+                        continue
+                    b64 = audio_data.get("data", "")
+                    if not b64:
+                        continue
+                    try:
+                        audio_bytes = base64.b64decode(b64)
+                        audio_items.append(audio_bytes)
+                    except Exception as e:
+                        logger.warning("Failed to decode input_audio: %s", e)
+
+                # Data URI with audio MIME type
+                elif part.get("type") == "image_url":
+                    image_url = part.get("image_url", {})
+                    if not isinstance(image_url, dict):
+                        continue
+                    url = image_url.get("url", "")
+                    if not isinstance(url, str) or not url.startswith("data:audio/"):
+                        continue
+                    try:
+                        _, b64_data = url.split(",", 1)
+                        audio_bytes = base64.b64decode(b64_data)
+                        audio_items.append(audio_bytes)
+                    except Exception as e:
+                        logger.warning("Failed to decode audio data URI: %s", e)
+
+                # File attachment with audio MIME type
+                elif part.get("type") == "file":
+                    file_data = part.get("file", {})
+                    if not isinstance(file_data, dict):
+                        continue
+                    mime = file_data.get("mime_type", "")
+                    if not _is_audio_mime(mime):
+                        continue
+                    b64 = file_data.get("data", "")
+                    if not b64:
+                        continue
+                    try:
+                        audio_bytes = base64.b64decode(b64)
+                        audio_items.append(audio_bytes)
+                    except Exception as e:
+                        logger.warning("Failed to decode audio file: %s", e)
+
+        return audio_items
+
 
 __all__ = [
     "MultimodalPreprocessor",
@@ -428,4 +590,14 @@ __all__ = [
     "HiddenContentReport",
     "FormatValidator",
     "FormatValidationResult",
+    "AudioTranscriber",
+    "TranscriptionResult",
+    "SpectralAnalyzer",
+    "SpectralAnalysisResult",
+    "AudioSanitizer",
+    "AudioSanitizationReport",
+    "AudioScanner",
+    "AudioScanReport",
+    "AudioAnalyzer",
+    "AudioAnalysisReport",
 ]

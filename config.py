@@ -613,6 +613,22 @@ class MultimodalConfig(BaseSettings):
         description="Block documents containing embedded script bodies (e.g. <script> tags)",
     )
 
+    # --- Audio scanning ---
+    audio_scanning_enabled: bool = Field(
+        default=True,
+        description="Enable audio scanning for voice-enabled AI security",
+    )
+    audio_max_size_mb: float = Field(
+        default=100.0,
+        ge=0.1,
+        description="Maximum audio size in megabytes before rejection",
+    )
+    audio_max_duration_seconds: float = Field(
+        default=1800.0,
+        ge=1.0,
+        description="Maximum audio duration in seconds (default 30 minutes)",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Global Platform Configuration

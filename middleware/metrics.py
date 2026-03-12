@@ -277,6 +277,27 @@ MULTIMODAL_DOCUMENT_THREATS = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Multimodal audio metrics
+# ---------------------------------------------------------------------------
+
+MULTIMODAL_AUDIO_SCANNED = Counter(
+    "aegis_multimodal_audio_scanned_total",
+    "Total audio files scanned by multimodal audio scanner",
+)
+
+MULTIMODAL_AUDIO_THREATS = Counter(
+    "aegis_multimodal_audio_threats_detected_total",
+    "Audio-specific threats detected",
+    ["threat_type"],
+)
+
+MULTIMODAL_AUDIO_TRANSCRIPTION_LATENCY = Histogram(
+    "aegis_multimodal_audio_transcription_latency_seconds",
+    "Audio transcription latency in seconds",
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 
