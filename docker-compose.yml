@@ -1,0 +1,128 @@
+# AEGIS Development Environment
+#
+# ASSUMED-BREACH POSTURE: This compose file is for LOCAL DEVELOPMENT ONLY.
+# It exposes Redis and PostgreSQL on default ports with default credentials.
+# Production deployments use managed services (AWS ElastiCache, RDS) with
+# encryption at rest, network isolation, and IAM authentication. Never
+# deploy this compose file to any shared or production environment.
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f aegis  # Follow AEGIS logs
+#   docker compose down -v        # Stop and remove volumes
+
+services:
+  aegis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # --- Upstream LLM provider ---
+      - AEGIS_UPSTREAM_URL=${AEGIS_UPSTREAM_URL:-http://host.docker.internal:11434}
+      - AEGIS_UPSTREAM_API_KEY=${AEGIS_UPSTREAM_API_KEY:-}
+      - AEGIS_MODEL=${AEGIS_MODEL:-llama3.2:3b}
+      # --- Gateway authentication ---
+      - AEGIS_API_KEY=${AEGIS_API_KEY:-aegis-dev-key}
+      # --- Security ---
+      - AEGIS_CANARY_SECRET_KEY=${AEGIS_CANARY_SECRET_KEY:-change-me-in-production}
+      # --- Backing services ---
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://aegis:aegis_secret@postgres:5432/aegis
+      # --- Policy engine ---
+      - AEGIS_POLICY_BACKEND=${AEGIS_POLICY_BACKEND:-python}
+      - AEGIS_POLICY_OPA_URL=http://opa:8181
+      # --- Model loading (always load in Docker) ---
+      - AEGIS_SKIP_MODEL_LOAD=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    volumes:
+      - aegis-data:/app/aegis/logs
+    networks:
+      - aegis-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis-data:/data
+    networks:
+      - aegis-net
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: aegis
+      POSTGRES_PASSWORD: aegis_secret
+      POSTGRES_DB: aegis
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegis -d aegis"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - aegis-net
+    restart: unless-stopped
+
+  opa:
+    image: openpolicyagent/opa:latest-static
+    ports:
+      - "8181:8181"
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "/policies"
+    volumes:
+      - ./data/opa_policies:/policies:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - aegis-net
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  aegis-data:
+    driver: local
+
+networks:
+  aegis-net:
+    driver: bridge

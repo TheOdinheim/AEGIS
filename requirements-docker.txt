@@ -1,0 +1,14 @@
+# Additional dependencies for Docker/production deployment.
+# Install AFTER requirements.txt:
+#   pip install -r requirements.txt -r requirements-docker.txt
+
+# --- Redis (event bus, rate limiting, caching) ---
+redis[hiredis]>=5.0,<6
+
+# --- PostgreSQL (async driver for SQLAlchemy) ---
+asyncpg>=0.29,<1
+psycopg2-binary>=2.9,<3
+
+# --- ORM / migrations ---
+sqlalchemy[asyncio]>=2.0,<3
+alembic>=1.14,<2

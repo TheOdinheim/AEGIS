@@ -1,0 +1,199 @@
+{
+  "version": "1.0.0",
+  "description": "Known CVEs affecting common ML/AI packages. Used by AEGIS dependency audit (Stage 3) for supply chain verification.",
+  "last_updated": "2025-05-01",
+  "vulnerabilities": [
+    {
+      "cve_id": "CVE-2024-3660",
+      "package": "transformers",
+      "affected_versions": "<4.38.0",
+      "fixed_version": "4.38.0",
+      "severity": "CRITICAL",
+      "description": "Arbitrary code execution via malicious model loading in Hugging Face Transformers"
+    },
+    {
+      "cve_id": "CVE-2023-43654",
+      "package": "torch",
+      "affected_versions": "<2.0.1",
+      "fixed_version": "2.0.1",
+      "severity": "CRITICAL",
+      "description": "Remote code execution through torch.load with pickle deserialization of untrusted data"
+    },
+    {
+      "cve_id": "CVE-2024-5480",
+      "package": "torch",
+      "affected_versions": "<2.3.1",
+      "fixed_version": "2.3.1",
+      "severity": "HIGH",
+      "description": "torch.distributed RPC allows arbitrary code execution on target nodes"
+    },
+    {
+      "cve_id": "CVE-2023-37920",
+      "package": "certifi",
+      "affected_versions": "<2023.7.22",
+      "fixed_version": "2023.7.22",
+      "severity": "HIGH",
+      "description": "Removal of e-Tugra root certificate due to security concerns"
+    },
+    {
+      "cve_id": "CVE-2024-34064",
+      "package": "jinja2",
+      "affected_versions": "<3.1.4",
+      "fixed_version": "3.1.4",
+      "severity": "MEDIUM",
+      "description": "HTML attribute injection via xmlattr filter allowing XSS"
+    },
+    {
+      "cve_id": "CVE-2023-47400",
+      "package": "numpy",
+      "affected_versions": "<1.22.0",
+      "fixed_version": "1.22.0",
+      "severity": "HIGH",
+      "description": "Buffer overflow in numpy array operations allowing arbitrary code execution"
+    },
+    {
+      "cve_id": "CVE-2024-27316",
+      "package": "httpx",
+      "affected_versions": "<0.27.0",
+      "fixed_version": "0.27.0",
+      "severity": "MEDIUM",
+      "description": "HTTP/2 CONTINUATION flood leading to denial of service"
+    },
+    {
+      "cve_id": "CVE-2023-50447",
+      "package": "pillow",
+      "affected_versions": "<10.2.0",
+      "fixed_version": "10.2.0",
+      "severity": "CRITICAL",
+      "description": "Arbitrary code execution via crafted image in Pillow image processing"
+    },
+    {
+      "cve_id": "CVE-2024-28219",
+      "package": "pillow",
+      "affected_versions": "<10.3.0",
+      "fixed_version": "10.3.0",
+      "severity": "HIGH",
+      "description": "Buffer overflow in Pillow image parsing allowing remote code execution"
+    },
+    {
+      "cve_id": "CVE-2024-3651",
+      "package": "idna",
+      "affected_versions": "<3.7",
+      "fixed_version": "3.7",
+      "severity": "MEDIUM",
+      "description": "Denial of service via resource consumption in IDNA encoding"
+    },
+    {
+      "cve_id": "CVE-2023-1428",
+      "package": "grpcio",
+      "affected_versions": "<1.53.0",
+      "fixed_version": "1.53.0",
+      "severity": "HIGH",
+      "description": "gRPC server crash on receipt of specially crafted messages"
+    },
+    {
+      "cve_id": "CVE-2024-2511",
+      "package": "cryptography",
+      "affected_versions": "<42.0.4",
+      "fixed_version": "42.0.4",
+      "severity": "MEDIUM",
+      "description": "Unbounded memory growth in TLSv1.3 session handling"
+    },
+    {
+      "cve_id": "CVE-2023-32681",
+      "package": "requests",
+      "affected_versions": "<2.31.0",
+      "fixed_version": "2.31.0",
+      "severity": "MEDIUM",
+      "description": "Proxy-Authorization header leaked during cross-origin redirects"
+    },
+    {
+      "cve_id": "CVE-2023-49082",
+      "package": "aiohttp",
+      "affected_versions": "<3.9.0",
+      "fixed_version": "3.9.0",
+      "severity": "HIGH",
+      "description": "CRLF injection via HTTP request smuggling in aiohttp"
+    },
+    {
+      "cve_id": "CVE-2024-22195",
+      "package": "jinja2",
+      "affected_versions": "<3.1.3",
+      "fixed_version": "3.1.3",
+      "severity": "MEDIUM",
+      "description": "Cross-site scripting via crafted template in Jinja2 rendering"
+    },
+    {
+      "cve_id": "CVE-2023-46136",
+      "package": "werkzeug",
+      "affected_versions": "<3.0.1",
+      "fixed_version": "3.0.1",
+      "severity": "HIGH",
+      "description": "Denial of service via high resource usage in multipart form data parsing"
+    },
+    {
+      "cve_id": "CVE-2024-21503",
+      "package": "scikit-learn",
+      "affected_versions": "<1.4.1",
+      "fixed_version": "1.4.1",
+      "severity": "MEDIUM",
+      "description": "Denial of service via crafted input in scikit-learn model deserialization"
+    },
+    {
+      "cve_id": "CVE-2024-1580",
+      "package": "tensorflow",
+      "affected_versions": "<2.16.1",
+      "fixed_version": "2.16.1",
+      "severity": "HIGH",
+      "description": "Out-of-bounds read in TensorFlow Lite resulting in information disclosure"
+    },
+    {
+      "cve_id": "CVE-2023-5752",
+      "package": "pip",
+      "affected_versions": "<23.3",
+      "fixed_version": "23.3",
+      "severity": "MEDIUM",
+      "description": "Command injection via URL parameter in pip install with Mercurial repos"
+    },
+    {
+      "cve_id": "CVE-2024-1681",
+      "package": "flask-cors",
+      "affected_versions": "<4.0.1",
+      "fixed_version": "4.0.1",
+      "severity": "MEDIUM",
+      "description": "Log injection via crafted Origin header in Flask-CORS"
+    },
+    {
+      "cve_id": "CVE-2023-25577",
+      "package": "werkzeug",
+      "affected_versions": "<2.2.3",
+      "fixed_version": "2.2.3",
+      "severity": "HIGH",
+      "description": "Excessive resource consumption parsing multipart data leading to DoS"
+    },
+    {
+      "cve_id": "CVE-2024-41110",
+      "package": "onnx",
+      "affected_versions": "<1.16.0",
+      "fixed_version": "1.16.0",
+      "severity": "HIGH",
+      "description": "Path traversal vulnerability in ONNX model loading from untrusted sources"
+    },
+    {
+      "cve_id": "CVE-2023-36807",
+      "package": "onnx",
+      "affected_versions": "<1.14.1",
+      "fixed_version": "1.14.1",
+      "severity": "MEDIUM",
+      "description": "Directory traversal in ONNX external data loading"
+    },
+    {
+      "cve_id": "CVE-2023-7104",
+      "package": "scipy",
+      "affected_versions": "<1.12.0",
+      "fixed_version": "1.12.0",
+      "severity": "MEDIUM",
+      "description": "Heap buffer overflow in libsqlite3 bundled with scipy"
+    }
+  ]
+}

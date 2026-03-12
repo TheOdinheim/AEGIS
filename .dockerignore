@@ -1,0 +1,58 @@
+# Version control
+.git
+.gitignore
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests and development tooling (not needed in production image)
+tests/
+demo/
+docs/
+
+# Documentation (CLAUDE.md stays excluded — not needed at runtime)
+*.md
+!requirements*.txt
+
+# Docker meta (prevent recursive context)
+docker-compose.yml
+docker-compose.override.yml
+Dockerfile
+
+# Secrets — never embed in image
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime-generated vault state (rebuilt from seed data)
+data/threat_vault_meta.*
+data/threat_vault.faiss*
+data/benchmark_results.json
+
+# ML model binaries (downloaded in build stage, not from host)
+*.onnx
+*.bin
+*.safetensors
+.cache/
+
+# Keep these (explicitly not ignored):
+# docker-entrypoint.sh — needed as ENTRYPOINT
+# requirements*.txt — needed for pip install
+# db/ — needed for init.sql COPY

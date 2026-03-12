@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/threat_vault_meta.*
+logs/
+*.egg-info/
+.env
+node_modules/

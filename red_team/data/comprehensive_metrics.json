@@ -1,0 +1,221 @@
+{
+  "assessment_date": "2026-03-11",
+  "phases_completed": 6,
+  "test_suite": {
+    "total_passing": 1872,
+    "total_skipped": 5,
+    "total_failed": 0,
+    "test_files": {
+      "test_normalization_hardened.py": 42,
+      "test_pii_hardened.py": 41,
+      "test_adversarial_ml.py": 42,
+      "test_red_team.py": 57,
+      "test_red_team_regression.py": 71,
+      "existing_tests": 1464,
+      "test_infrastructure_security.py": 60,
+      "test_adaptive_red_team.py": 63,
+      "test_hardening_regression.py": 32
+    }
+  },
+  "normalization": {
+    "pipeline_steps": 8,
+    "homoglyph_mappings": 200,
+    "zero_width_chars": 22,
+    "bidi_chars": 9,
+    "leetspeak_chars": 8,
+    "recursive_base64_max_depth": 3,
+    "scripts_covered": [
+      "Cyrillic",
+      "Greek",
+      "Armenian",
+      "Georgian",
+      "Cherokee",
+      "Fullwidth Latin",
+      "Math Bold",
+      "Math Italic",
+      "Enclosed Alphanumerics",
+      "Coptic",
+      "Tifinagh",
+      "Roman Numerals",
+      "Latin Extended"
+    ]
+  },
+  "pattern_library": {
+    "total_patterns": 170,
+    "categories": {
+      "direct_injection": 38,
+      "jailbreak": 29,
+      "system_prompt_extraction": 4,
+      "encoding_obfuscation": 12,
+      "code_injection": 3,
+      "social_engineering": 22,
+      "data_exfiltration": 10,
+      "indirect_injection": 8,
+      "other": 44
+    }
+  },
+  "pii_detection": {
+    "total_patterns": 15,
+    "pattern_types": [
+      "SSN (numeric)",
+      "SSN (word-spelled)",
+      "SSN (reversed)",
+      "SSN (code-context)",
+      "SSN (URL-embedded)",
+      "SSN (base64-context)",
+      "Credit Card (numeric + Luhn)",
+      "Credit Card (word-spelled)",
+      "Email (standard)",
+      "Email (code-context)",
+      "Email (URL-embedded)",
+      "Phone (standard)",
+      "Phone (code-context)",
+      "Phone (word-spelled)",
+      "Password (assignment)"
+    ],
+    "secret_patterns": 8
+  },
+  "adversarial_ml": {
+    "algorithms": [
+      "TextFooler",
+      "CharSwap",
+      "Paraphrase",
+      "Evolutionary",
+      "TimingOracle",
+      "BoundaryMapper"
+    ],
+    "corpus_size": 200,
+    "corpus_categories": 6,
+    "synonym_dict_size": 500,
+    "confusable_map_size": 229,
+    "paraphrase_templates": 50,
+    "mutation_operators": 7,
+    "evolutionary_params": {
+      "population_size": 50,
+      "generations": 30,
+      "tournament_size": 3
+    }
+  },
+  "campaigns": {
+    "total": 12,
+    "phase_2": {
+      "PHANTOM_NEEDLE": {
+        "attacks": 18,
+        "detection_pct": 22.2,
+        "attacker_success": false
+      },
+      "SILENT_SIPHON": {
+        "attacks": 13,
+        "detection_pct": 0.0,
+        "attacker_success": true
+      },
+      "SLOW_BURN": {
+        "attacks": 20,
+        "detection_pct": 50.0,
+        "attacker_success": false
+      },
+      "HYDRA": {
+        "attacks": 200,
+        "detection_pct": 17.0,
+        "attacker_success": true
+      },
+      "GHOST_PROTOCOL": {
+        "attacks": 7,
+        "detection_pct": 28.6,
+        "attacker_success": true
+      },
+      "CASCADING_FAILURE": {
+        "attacks": 12,
+        "detection_pct": 58.3,
+        "attacker_success": false
+      }
+    },
+    "phase_4": {
+      "SHAPESHIFTER": {
+        "technique": "evolutionary_evasion"
+      },
+      "BABEL_TOWER": {
+        "technique": "multi_language",
+        "languages": 10
+      },
+      "THOUSAND_CUTS": {
+        "technique": "hidden_in_traffic",
+        "benign": 400,
+        "borderline": 75,
+        "attacks": 25
+      },
+      "INSIDE_JOB": {
+        "technique": "document_injection",
+        "formats": 10
+      },
+      "MIRROR_MIRROR": {
+        "technique": "pii_evasion",
+        "input_formats": 20,
+        "output_formats": 10
+      },
+      "FULL_SPECTRUM": {
+        "technique": "combined",
+        "total_requests": 700
+      }
+    }
+  },
+  "adaptive_red_team": {
+    "blind_spots_found": 3,
+    "coverage_gaps": 3,
+    "predictor": {
+      "features": 12,
+      "training_samples": 20,
+      "accuracy": 0.65
+    },
+    "co_evolution": {
+      "rounds": 10,
+      "initial_evasion_rate": 0.2,
+      "final_evasion_rate": 0.5,
+      "arms_race_winner": "attacker",
+      "convergence_round": 6
+    },
+    "fingerprints": {
+      "total": 3,
+      "root_cause_distribution": {
+        "layer_gap": 6,
+        "classifier_blind_spot": 21,
+        "context_dilution": 2
+      }
+    },
+    "hardening_plan": {
+      "total_rules": 6,
+      "rules_by_type": {
+        "config_change": 3,
+        "vault_entry": 1,
+        "regex_pattern": 2
+      },
+      "estimated_evasion_reduction": 0.9
+    },
+    "overall_grade": "CRITICAL",
+    "overall_evasion_rate": 0.5
+  },
+  "hardening_generated": {
+    "new_char_mappings": 119,
+    "new_regex_patterns": 6,
+    "new_pii_patterns": 3,
+    "config_recommendations": 3,
+    "vault_seed_entries": 1,
+    "unicode_blocks_covered": [
+      "Mathematical Monospace",
+      "Mathematical Double-Struck",
+      "Mathematical Sans-Serif Bold",
+      "Circled Latin",
+      "Parenthesized Latin"
+    ]
+  },
+  "residual_risks": [
+    "Paraphrased/semantic injection (requires L3 DeBERTa)",
+    "Steganographic PII (requires Presidio NER)",
+    "Non-English language attacks (requires language detection)",
+    "Timing side-channel (requires constant-time padding)",
+    "Mixed-case leetspeak (skipped to protect base64; mitigated by L3)",
+    "Co-evolution attacker wins with mutation-based keyword avoidance (requires L3 DeBERTa)",
+    "Predictor accuracy limited by training data diversity",
+    "Multi-language injection detection limited to ES/FR/DE/RU"
+  ]
+}
