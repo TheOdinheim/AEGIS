@@ -497,3 +497,72 @@ python3 -m red_team.multimodal_apt.run_multimodal_apt --url URL --api-key KEY --
 | ADEQUATE | ≥75% |
 | NEEDS_IMPROVEMENT | ≥50% |
 | CRITICAL | <50% |
+
+---
+
+## Distillation Defense Module
+
+Detects systematic model extraction attacks that operate across hundreds of sessions over hours/days — invisible to single-request analysis.
+
+### Threat Model
+
+Model distillation attackers send carefully crafted queries to:
+1. **Sweep topic coverage** — map the model's knowledge domain systematically
+2. **Probe governance boundaries** — alternate blocked/allowed queries to map decision rules
+3. **Coerce reasoning traces** — elicit chain-of-thought that reveals model internals
+4. **Maximize information gain** — optimize queries for longest, most diverse responses
+5. **Escalate complexity** — progressively increase query sophistication to map capability limits
+
+### Five Detection Strategies
+
+**1. Query Diversity Anomaly** (weight: 0.25)
+- Requires 50+ queries in the analysis window
+- Computes topic coverage: unique topic hashes / total queries
+- Triggers when coverage > 70% (normal users revisit topics; extractors sweep)
+- Confidence scales with query count: min(0.5 + coverage * 0.4, 0.95)
+
+**2. Governance Boundary Mapping** (weight: 0.30)
+- Requires 30+ queries in window
+- Computes block rate and alternation score (blocked→allowed transitions)
+- Triggers when block rate 15-60% AND alternation > 0.3
+- Low block rate (<15%) = normal user; high (>60%) = unsophisticated attacker
+- The sweet spot (15-60% with alternation) indicates deliberate boundary probing
+
+**3. Reasoning Trace Coercion** (weight: 0.20)
+- 15+ compiled regex patterns matching reasoning-eliciting queries
+- Patterns: "step by step", "show your reasoning", "explain your thought process", "chain of thought", etc.
+- Requires 20+ reasoning queries AND >25% reasoning ratio
+- Confidence scales: min(0.5 + (ratio - 0.25) * 2, 0.90)
+
+**4. Response Information Gain** (weight: 0.10)
+- Requires 20+ queries in window
+- Compares per-key avg response length vs global avg
+- Triggers when avg > 2x global AND query diversity > 0.6
+- Running global average updated on every interaction
+
+**5. Systematic Complexity Escalation** (weight: 0.15)
+- Requires 30+ queries in window
+- Computes complexity score per query: word count + unique words + avg word length
+- Linear regression slope on normalized complexity scores
+- Triggers when slope > 0.02 (monotonically increasing sophistication)
+
+### Reasoning Trace Sanitization
+
+L5 Stage 6 output filter. Three modes controlled by `AEGIS_REASONING_TRACE_MODE`:
+
+| Mode | Behavior |
+|------|----------|
+| `monitor` | Detect and count traces, no modification (default) |
+| `redact` | Replace detected traces with `[REASONING REDACTED]` |
+| `summarize` | Replace with `[REASONING SUMMARIZED]` |
+
+Detection categories: chain-of-thought (10 patterns), governance disclosure (11 patterns), decision process disclosure (8 patterns).
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AEGIS_DISTILLATION_DEFENSE_ENABLED` | `true` | Enable/disable entire module |
+| `AEGIS_DISTILLATION_WINDOW_HOURS` | `24.0` | Analysis window (hours, ≥1.0) |
+| `AEGIS_DISTILLATION_MAX_HISTORY` | `10000` | Max records per API key |
+| `AEGIS_REASONING_TRACE_MODE` | `monitor` | monitor/redact/summarize |

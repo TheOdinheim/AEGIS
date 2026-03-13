@@ -111,6 +111,11 @@ from aegis.middleware.metrics import (
     MULTIMODAL_OCR_TEXT_EXTRACTED,
     MULTIMODAL_IMAGE_THREATS,
     MULTIMODAL_SCAN_LATENCY,
+    DISTILLATION_SIGNALS,
+    DISTILLATION_ALERTS,
+    DISTILLATION_BLOCKS,
+    REASONING_TRACES_DETECTED,
+    GOVERNANCE_DISCLOSURES_DETECTED,
     get_metrics_text,
     track_latency,
 )
@@ -121,6 +126,9 @@ from aegis.middleware.request_enrichment import (
     parse_request_body,
 )
 from aegis.layers.multimodal import MultimodalPreprocessor
+from aegis.layers.adaptive.distillation_defense import DistillationDefenseAnalyzer
+from aegis.layers.adaptive.distillation_models import InteractionRecord
+from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.models.policy_decision import PolicyAction
 
 logger = logging.getLogger(__name__)
@@ -155,6 +163,8 @@ _deep_health: DeepHealthMonitor | None = None
 _config_validation: ConfigValidationResult | None = None
 _vault_backup: VaultBackupManager | None = None
 _multimodal: MultimodalPreprocessor | None = None
+_distillation: DistillationDefenseAnalyzer | None = None
+_reasoning_sanitizer: ReasoningTraceSanitizer | None = None
 
 
 def _init_layers(
@@ -166,6 +176,7 @@ def _init_layers(
     """Initialize all layers. Called during app startup."""
     global _barrier, _innate, _adaptive, _output, _policy, _healing, _vault, _config, _http_client, _audit, _threat_intel
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
+    global _distillation, _reasoning_sanitizer
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -339,6 +350,19 @@ def _init_layers(
         steg_enabled=_config.multimodal.steg_enabled,
         max_images_per_request=_config.multimodal.max_images_per_request,
     )
+
+    # Distillation defense (config-gated)
+    if _config.distillation_defense_enabled:
+        _distillation = DistillationDefenseAnalyzer(
+            window_hours=_config.distillation_window_hours,
+            max_history=_config.distillation_max_history,
+        )
+        _reasoning_sanitizer = ReasoningTraceSanitizer(
+            mode=_config.reasoning_trace_mode,
+        )
+    else:
+        _distillation = None
+        _reasoning_sanitizer = None
 
     # Audit logger
     _audit = get_audit_logger()
@@ -1742,6 +1766,7 @@ async def _process_request(request: Request, request_id: str) -> Response:
         )
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+        _record_distillation_interaction(context, was_blocked=True, block_reason="innate_threshold")
         return _block_response(request_id, "Request blocked by AEGIS innate detection.")
 
     # --- L3 Adaptive (async, parallel with model call) ---
@@ -1792,6 +1817,7 @@ async def _process_request(request: Request, request_id: str) -> Response:
         )
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+        _record_distillation_interaction(context, was_blocked=True, block_reason="policy")
         return _block_response(request_id, quick_decision.block_message)
 
     # --- L7 Circuit Breaker check ---
@@ -1940,6 +1966,30 @@ def _record_signature_matches(innate_report, prompt_text: str) -> None:
             logger.info("Auto-deprecated %d signatures: %s", len(deprecated), deprecated)
 
 
+def _record_distillation_interaction(
+    context, was_blocked: bool, block_reason: str = "", response_text: str = "",
+) -> None:
+    """Record an interaction for distillation defense cross-session tracking.
+
+    Called on EVERY request path (blocked and allowed) to build per-key history.
+    """
+    if not _distillation:
+        return
+    api_key_hash = context.api_key_hash or compute_prompt_hash("unknown")
+    _distillation.record_interaction(
+        api_key_hash,
+        InteractionRecord(
+            topic_hash=_distillation._compute_topic_hash(context.prompt_text),
+            query_text_summary=context.prompt_text[:200],
+            response_length=len(response_text),
+            was_blocked=was_blocked,
+            block_reason=block_reason,
+            complexity_score=_distillation._compute_complexity(context.prompt_text),
+            is_reasoning_query=_distillation._is_reasoning_query(context.prompt_text),
+        ),
+    )
+
+
 async def _run_adaptive(context, innate_report):
     """Run adaptive analysis and track latency."""
     with_latency = time.perf_counter()
@@ -2049,6 +2099,7 @@ async def _handle_non_streaming(
         )
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+        _record_distillation_interaction(context, was_blocked=True, block_reason="adaptive_mcav")
         return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
 
     # --- Canary verification on output ---
@@ -2137,6 +2188,7 @@ async def _handle_non_streaming(
             block_reason="output_cascade_block",
         )
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+        _record_distillation_interaction(context, was_blocked=True, block_reason="output_cascade", response_text=response_text)
         return _block_response(
             request_id,
             "Response blocked by AEGIS output validation.",
@@ -2147,6 +2199,64 @@ async def _handle_non_streaming(
         upstream_response = _apply_redactions_to_response(
             upstream_response, output_result.redacted_text
         )
+
+    # --- Reasoning trace sanitization (L5 Stage 6) ---
+    if _reasoning_sanitizer:
+        sanitized_text, reasoning_result = _reasoning_sanitizer.scan_and_redact(
+            _extract_response_text(upstream_response)
+        )
+        if reasoning_result.has_reasoning_trace:
+            REASONING_TRACES_DETECTED.inc()
+        if reasoning_result.has_governance_disclosure:
+            GOVERNANCE_DISCLOSURES_DETECTED.inc()
+        if reasoning_result.redacted_text and reasoning_result.redacted_text != _extract_response_text(upstream_response):
+            upstream_response = _apply_redactions_to_response(
+                upstream_response, reasoning_result.redacted_text
+            )
+
+    # --- Distillation defense analysis ---
+    if _distillation:
+        api_key_hash = context.api_key_hash or compute_prompt_hash("unknown")
+        distill_report = await _distillation.analyze(
+            api_key=api_key_hash,
+            query_text=context.prompt_text,
+            response_text=response_text,
+            was_blocked=False,
+        )
+        # Record metrics for triggered signals
+        for sig in distill_report.signals:
+            if sig.triggered:
+                DISTILLATION_SIGNALS.labels(strategy=sig.strategy.value).inc()
+        if distill_report.should_alert:
+            DISTILLATION_ALERTS.inc()
+            if _audit:
+                _audit.log(
+                    request_id, "distillation", "alert",
+                    tenant_id=context.tenant_id,
+                    decision_context={
+                        "combined_score": distill_report.combined_threat_score,
+                        "total_queries": distill_report.total_queries,
+                        "action": distill_report.recommended_action,
+                    },
+                )
+        if distill_report.should_block:
+            DISTILLATION_BLOCKS.inc()
+            BLOCKS_TOTAL.labels(layer="distillation", reason="extraction_pattern").inc()
+            if _audit:
+                _audit.log(
+                    request_id, "distillation", "block",
+                    tenant_id=context.tenant_id,
+                    decision_context={
+                        "combined_score": distill_report.combined_threat_score,
+                        "total_queries": distill_report.total_queries,
+                    },
+                )
+            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            return _block_response(
+                request_id,
+                "Request blocked: anomalous query pattern detected.",
+            )
 
     if _audit:
         _audit.log(

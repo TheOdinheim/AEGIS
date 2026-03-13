@@ -49,7 +49,9 @@ aegis/
 │   │   ├── injection_classifier.py  # DeBERTa-v3 prompt injection (ONNX, ~20ms)
 │   │   ├── semantic_search.py       # Embedding + FAISS similarity search
 │   │   ├── behavioral.py            # Baseline anomaly detection (PSI, KS tests)
-│   │   └── multi_turn.py            # Multi-turn: escalation trajectory, boundary testing, rapid-fire, topic drift
+│   │   ├── multi_turn.py            # Multi-turn: escalation trajectory, boundary testing, rapid-fire, topic drift
+│   │   ├── distillation_defense.py  # Cross-session extraction detection (5 strategies)
+│   │   └── distillation_models.py   # Data models: InteractionRecord, DistillationSignal/Report, ReasoningScanResult
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   └── signatures.py            # Clonal selection generator + SignatureStore
@@ -60,6 +62,7 @@ aegis/
 │   │   ├── hallucination.py         # Stage 3: N-gram source coverage for RAG responses
 │   │   ├── leakage.py               # Stage 4: System prompt echo detection
 │   │   ├── schema_validator.py      # Stage 5: JSON schema validation, injected field detection
+│   │   ├── reasoning_sanitizer.py   # Stage 6: Reasoning trace sanitization (monitor/redact/summarize)
 │   │   └── streaming.py             # StreamingInterceptor: hold buffer, PII scrub, cumulative threat
 │   ├── policy/
 │   │   ├── __init__.py              # L6: PolicyEngine, TenantPolicy, TLI (5 levels), score fusion
@@ -182,6 +185,7 @@ aegis/
 │   ├── test_cross_modal.py            # Multimodal Phase 4: cross-modal correlation, tool use scanning (46 tests)
 │   ├── test_multimodal_integration.py # Multimodal Phase 4: end-to-end integration via TestClient (12 tests)
 │   ├── test_multimodal_apt.py         # Multimodal APT: payload gen, adaptive attacker, behavior validation, integration (59 tests)
+│   ├── test_distillation_defense.py   # Distillation defense: 5 strategies, reasoning sanitizer, integration (50 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -359,9 +363,10 @@ Red team tests: python3 -m pytest tests/test_red_team.py -v --tb=short
 Red team regression tests: python3 -m pytest tests/test_red_team_regression.py -v --tb=short
 APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/parent:/path/to/aegis)
 
-## Current Metrics (as of 2026-03-12)
+## Current Metrics (as of 2026-03-13)
 
-- Tests: 2159 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2209 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Distillation defense: 50 tests (5 strategies + reasoning sanitizer + integration)
 - Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)
 - Infrastructure security: 60 tests across 8 attack modules (Phase 5)
@@ -391,6 +396,10 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_MULTIMODAL_AUDIO_SCANNING_ENABLED — enable audio security scanning (default: true)
 - AEGIS_MULTIMODAL_AUDIO_MAX_SIZE_MB — max audio file size in MB (default: 100)
 - AEGIS_MULTIMODAL_AUDIO_MAX_DURATION_SECONDS — max audio duration in seconds (default: 1800)
+- AEGIS_DISTILLATION_DEFENSE_ENABLED — enable cross-session distillation defense (default: true)
+- AEGIS_DISTILLATION_WINDOW_HOURS — analysis window for cross-session tracking (default: 24.0)
+- AEGIS_DISTILLATION_MAX_HISTORY — max interaction records per API key (default: 10000)
+- AEGIS_REASONING_TRACE_MODE — reasoning trace sanitization mode: monitor, redact, or summarize (default: monitor)
 - REDIS_URL — Redis connection URL (redis://host:port/db). When set, enables Redis-backed rate limiting and Redis Streams event bus. When unset, falls back to in-memory implementations.
 - DATABASE_URL — PostgreSQL connection URL (postgresql://user:pass@host:port/db). When set, enables persistent audit logging, threat indicator storage, and signature persistence. When unset, AEGIS runs without PostgreSQL (JSONL audit only, in-memory vault).
 
@@ -770,6 +779,11 @@ AEGIS exposes comprehensive Prometheus metrics via `GET /metrics` (authenticated
 | `aegis_stream_interruptions_total` | Counter | reason | Stream interruptions (pii/toxicity/leakage/cumulative) |
 | `aegis_stream_windows_evaluated_total` | Counter | — | Streaming validation windows evaluated |
 | `aegis_stream_tokens_processed_total` | Counter | — | Tokens processed through streaming interceptor |
+| `aegis_distillation_signals_total` | Counter | strategy | Distillation defense signals triggered |
+| `aegis_distillation_alerts_total` | Counter | — | Distillation defense alerts (combined score >= 0.60) |
+| `aegis_distillation_blocks_total` | Counter | — | Distillation defense blocks (combined score >= 0.85) |
+| `aegis_reasoning_traces_detected_total` | Counter | — | Reasoning traces detected in model output |
+| `aegis_governance_disclosures_detected_total` | Counter | — | Governance disclosures detected in model output |
 | `aegis_build_info` | Info | — | Build version metadata |
 
 **Instrumentation Points**: Every layer call in `main.py` records timing via `LAYER_LATENCY`. Per-scanner and per-analyzer breakdowns use `INNATE_SCANNER_LATENCY` and `ADAPTIVE_ANALYZER_LATENCY` (converted from ms to seconds). Output cascade stages tracked individually. Upstream calls timed with `UPSTREAM_LATENCY`. Event bus publishes counted. Quarantine gauge updated on every adversarial event.
@@ -793,6 +807,40 @@ AEGIS exposes comprehensive Prometheus metrics via `GET /metrics` (authenticated
 Overall status derived from worst component: any unhealthy security layer → unhealthy (503); degraded backing services → degraded (200); all healthy → healthy (200).
 
 **`_record_request_metrics()`** (`main.py`): Centralized helper called at end of each request recording tenant-labeled request counts, threat level gauge, and quarantine gauge.
+
+## Distillation Defense
+
+Cross-session model extraction detection and reasoning trace sanitization. Detects systematic knowledge harvesting, governance boundary mapping, and reasoning trace coercion attacks that span hundreds of queries over hours/days.
+
+**DistillationDefenseAnalyzer** (`layers/adaptive/distillation_defense.py`): Per-API-key interaction history with 5 detection strategies:
+
+| Strategy | Weight | Threshold | What It Detects |
+|----------|--------|-----------|-----------------|
+| Query Diversity | 0.25 | >70% unique topics over 50+ queries | Systematic topic coverage sweeps |
+| Boundary Mapping | 0.30 | 15-60% block rate with alternating pattern | Governance rule probing (blocked→allowed cycling) |
+| Reasoning Coercion | 0.20 | >25% reasoning queries (20+ total) | Excessive chain-of-thought elicitation |
+| Information Gain | 0.10 | 2x+ global avg response length | Queries optimized for max info extraction |
+| Complexity Escalation | 0.15 | Positive slope >0.02 over 30+ queries | Monotonically increasing query sophistication |
+
+Combined threat score = weighted sum of triggered signals. Action thresholds: <0.30 none, 0.30-0.60 increase_monitoring, 0.60-0.85 rate_limit (alert), >=0.85 block_and_review (403).
+
+Thread-safe via `threading.Lock`. Topic hashing uses SHA-256 of top-3 keywords for privacy-preserving clustering. Query text truncated to 200 chars in stored records.
+
+**ReasoningTraceSanitizer** (`layers/output/reasoning_sanitizer.py`): L5 Stage 6 — detects and optionally redacts reasoning traces in model output.
+
+Three detection categories:
+- **Chain-of-thought**: "let me think step by step", "first, .* then, .* finally", numbered reasoning steps
+- **Governance disclosure**: "I cannot .* because my guidelines", "my training data", "my safety filters"
+- **Decision process**: "I considered .* but decided", "weighing .* against", "my reasoning process"
+
+Three modes: `monitor` (detect only, default), `redact` (replace with `[REASONING REDACTED]`), `summarize` (replace with `[REASONING SUMMARIZED]`).
+
+**Pipeline integration** (`main.py`):
+- Initialized in `_init_layers()`, gated on `distillation_defense_enabled` config
+- Reasoning sanitizer runs after L5 Stage 5 (schema validation) on non-streaming responses
+- Distillation analyzer runs after reasoning sanitization, calls `analyze()` with API key hash, prompt, response
+- `record_interaction()` called on EVERY request path (blocked and allowed) for cross-session history
+- Distillation block returns 403: "Request blocked: anomalous query pattern detected"
 
 ## Concurrency Safety
 

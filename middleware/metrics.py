@@ -326,6 +326,36 @@ TOOL_CHAIN_ANOMALIES = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Distillation defense metrics
+# ---------------------------------------------------------------------------
+
+DISTILLATION_SIGNALS = Counter(
+    "aegis_distillation_signals_total",
+    "Distillation defense signals triggered",
+    ["strategy"],
+)
+
+DISTILLATION_ALERTS = Counter(
+    "aegis_distillation_alerts_total",
+    "Distillation defense alerts (combined score >= 0.60)",
+)
+
+DISTILLATION_BLOCKS = Counter(
+    "aegis_distillation_blocks_total",
+    "Distillation defense blocks (combined score >= 0.85)",
+)
+
+REASONING_TRACES_DETECTED = Counter(
+    "aegis_reasoning_traces_detected_total",
+    "Reasoning traces detected in model output",
+)
+
+GOVERNANCE_DISCLOSURES_DETECTED = Counter(
+    "aegis_governance_disclosures_detected_total",
+    "Governance disclosures detected in model output",
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 

@@ -704,6 +704,26 @@ class AegisConfig(BaseSettings):
         description="PostgreSQL connection URL for audit logs and signatures",
     )
 
+    # --- Distillation defense ---
+    distillation_defense_enabled: bool = Field(
+        default=True,
+        description="Enable cross-session distillation attack detection",
+    )
+    distillation_window_hours: float = Field(
+        default=24.0,
+        ge=1.0,
+        description="Hours of history to retain for distillation detection",
+    )
+    distillation_max_history: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum interaction records per API key",
+    )
+    reasoning_trace_mode: str = Field(
+        default="monitor",
+        description="Reasoning trace sanitizer mode: 'monitor', 'redact', or 'summarize'",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
