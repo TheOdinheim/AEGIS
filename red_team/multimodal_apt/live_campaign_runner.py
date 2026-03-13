@@ -45,14 +45,18 @@ class LiveCampaignRunner:
         aegis_url: str = "http://localhost:8000",
         api_key: str = "",
         timeout: float = 30.0,
-        concurrency: int = 5,
+        concurrency: int = 2,
         model: str = "gpt-4",
+        retry_on_429: int = 3,
+        retry_delay: float = 2.0,
     ) -> None:
         self._url = aegis_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
         self._concurrency = concurrency
         self._model = model
+        self._retry_on_429 = retry_on_429
+        self._retry_delay = retry_delay
         self._factory = PayloadFactory()
 
     async def send_attack(self, attack: AttackPayload) -> AttackResult:
@@ -66,11 +70,15 @@ class LiveCampaignRunner:
         start = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{self._url}/v1/chat/completions",
-                    json=body,
-                    headers=headers,
-                )
+                for attempt in range(self._retry_on_429 + 1):
+                    resp = await client.post(
+                        f"{self._url}/v1/chat/completions",
+                        json=body,
+                        headers=headers,
+                    )
+                    if resp.status_code != 429 or attempt == self._retry_on_429:
+                        break
+                    await asyncio.sleep(self._retry_delay * (attempt + 1))
             elapsed = (time.monotonic() - start) * 1000
             return self._classify(attack, resp, elapsed)
         except Exception as e:
@@ -152,13 +160,10 @@ class LiveCampaignRunner:
 
         attacker = AdaptiveMultimodalAttacker()
 
-        async def _send_fn(attacks: list[AttackPayload]) -> list[AttackResult]:
-            return await self.send_attacks(attacks)
-
-        # Run adaptive rounds using async
-        report = attacker.run_adaptive_rounds(
+        # Run adaptive rounds — send_fn is async
+        report = await attacker.run_adaptive_rounds(
             initial, results,
-            send_fn=lambda atks: asyncio.get_event_loop().run_until_complete(self.send_attacks(atks)),
+            send_fn=self.send_attacks,
             rounds=rounds,
         )
 

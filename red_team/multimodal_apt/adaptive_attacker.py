@@ -170,16 +170,16 @@ class AdaptiveMultimodalAttacker:
                 strongest = mod
         return strongest
 
-    def run_adaptive_rounds(
+    async def run_adaptive_rounds(
         self,
         initial_attacks: list[AttackPayload],
         initial_results: list[AttackResult],
         send_fn: Any,  # async callable: list[AttackPayload] -> list[AttackResult]
         rounds: int = 3,
     ) -> AdaptiveAttackReport:
-        """Run adaptive attack rounds (synchronous wrapper for test use).
+        """Run adaptive attack rounds.
 
-        For async live campaigns, use run_adaptive_campaign instead.
+        send_fn must be an async callable: list[AttackPayload] -> list[AttackResult].
         """
         all_rounds: list[RoundResult] = []
         current_attacks = initial_attacks
@@ -209,7 +209,7 @@ class AdaptiveMultimodalAttacker:
 
             # Send mutated attacks
             if callable(send_fn):
-                mutated_results = send_fn(mutated)
+                mutated_results = await send_fn(mutated)
             else:
                 break
 

@@ -1609,9 +1609,31 @@ async def _process_request(request: Request, request_id: str) -> Response:
     raw_body = await get_raw_body(request)
     is_streaming = body.get("stream", False)
 
+    # --- Flatten multimodal list-content messages for ChatMessage parsing ---
+    # OpenAI multimodal format uses content: [{type: "text", ...}, {type: "image_url", ...}]
+    # but ChatMessage expects content: str. Flatten BEFORE barrier so parsing doesn't crash.
+    # The original body dict is preserved for the multimodal preprocessor below.
+    original_messages = body.get("messages", [])
+    flattened_messages = []
+    for msg in original_messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            # Extract text parts; non-text parts are handled by multimodal preprocessor
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+            flat_msg = dict(msg)
+            flat_msg["content"] = "\n".join(text_parts) if text_parts else ""
+            flattened_messages.append(flat_msg)
+        else:
+            flattened_messages.append(msg)
+    barrier_body = dict(body)
+    barrier_body["messages"] = flattened_messages
+
     # --- L1 Barrier ---
     with_latency = time.perf_counter()
-    context = await _barrier.process(body, headers, source_ip, raw_body)
+    context = await _barrier.process(barrier_body, headers, source_ip, raw_body)
     context.request_id = request_id
     LAYER_LATENCY.labels(layer="barrier").observe(time.perf_counter() - with_latency)
 

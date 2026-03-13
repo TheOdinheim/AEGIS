@@ -1,0 +1,52 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/jeremy/aegis/red_team/multimodal_apt/run_multimodal_apt.py", line 130, in <module>
+    main()
+  File "/home/jeremy/aegis/red_team/multimodal_apt/run_multimodal_apt.py", line 118, in main
+    assessment = asyncio.run(_run())
+                 ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/jeremy/aegis/red_team/multimodal_apt/run_multimodal_apt.py", line 92, in _run
+    result = await fn()
+             ^^^^^^^^^^
+  File "/home/jeremy/aegis/red_team/multimodal_apt/live_campaign_runner.py", line 159, in run_adaptation
+    report = attacker.run_adaptive_rounds(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jeremy/aegis/red_team/multimodal_apt/adaptive_attacker.py", line 212, in run_adaptive_rounds
+    mutated_results = send_fn(mutated)
+                      ^^^^^^^^^^^^^^^^
+  File "/home/jeremy/aegis/red_team/multimodal_apt/live_campaign_runner.py", line 161, in <lambda>
+    send_fn=lambda atks: asyncio.get_event_loop().run_until_complete(self.send_attacks(atks)),
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 663, in run_until_complete
+    self._check_running()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 622, in _check_running
+    raise RuntimeError('This event loop is already running')
+RuntimeError: This event loop is already running
+
+Running Campaign: PRISM...
+  PRISM: 0/25 blocked (0.0% detection rate)
+
+Running Campaign: DEEP COVER...
+  DEEP COVER: 0/20 blocked (0.0% detection rate)
+
+Running Campaign: WHISPER...
+  WHISPER: 0/12 blocked (0.0% detection rate)
+
+Running Campaign: CHIMERA...
+  CHIMERA: 0/20 blocked (0.0% detection rate)
+
+Running Campaign: PUPPET MASTER...
+  PUPPET MASTER: 0/12 blocked (0.0% detection rate)
+
+Running Campaign: ADAPTATION...
+sys:1: RuntimeWarning: coroutine 'LiveCampaignRunner.send_attacks' was never awaited
