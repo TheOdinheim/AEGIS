@@ -1,26 +1,26 @@
 # Multimodal APT Assessment Report
 
-**Date:** 2026-03-13T15:08:08.755347+00:00
+**Date:** 2026-03-13T21:31:50.891033+00:00
 **Campaigns:** 7
 **Overall Grade: ADEQUATE**
 **Detection Rate:** 89.3%
-**False Positive Rate:** 31.2%
+**False Positive Rate:** 30.5%
 
 ## Executive Summary
 
-Multimodal APT assessment across 7 campaigns. Overall detection rate: 89.3%. Overall FPR: 31.2%. Grade: ADEQUATE.
+Multimodal APT assessment across 7 campaigns. Overall detection rate: 89.3%. Overall FPR: 30.5%. Grade: ADEQUATE.
 
 ## Campaign Results
 
 | Campaign | Attacks | Blocked | Detection Rate | FPR |
 |----------|---------|---------|----------------|-----|
-| PRISM | 25 | 21 | 84.0% | 0.0% |
+| PRISM | 25 | 23 | 92.0% | 0.0% |
 | DEEP COVER | 20 | 20 | 100.0% | 0.0% |
 | WHISPER | 12 | 12 | 100.0% | 0.0% |
 | CHIMERA | 20 | 13 | 65.0% | 0.0% |
 | PUPPET MASTER | 12 | 12 | 100.0% | 0.0% |
 | ADAPTATION | 20 | 20 | 100.0% | 0.0% |
-| TOTAL WAR | 199 | 177 | 91.0% | 87.3% |
+| TOTAL WAR | 199 | 175 | 91.0% | 85.5% |
 
 ## Per-Modality Detection Matrix
 
@@ -28,9 +28,9 @@ Multimodal APT assessment across 7 campaigns. Overall detection rate: 89.3%. Ove
 |----------|-------|---------|---------|----------------|
 | audio | 24 | 24 | 0 | 100.0% |
 | cross_modal | 40 | 25 | 15 | 62.5% |
-| document | 50 | 45 | 5 | 90.0% |
-| image | 70 | 64 | 6 | 91.4% |
-| text | 80 | 73 | 7 | 91.2% |
+| document | 50 | 42 | 8 | 84.0% |
+| image | 70 | 68 | 2 | 97.1% |
+| text | 80 | 72 | 8 | 90.0% |
 | tool | 24 | 24 | 0 | 100.0% |
 
 ## Residual Risks

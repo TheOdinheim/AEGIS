@@ -61,7 +61,12 @@
       "Bash(python3 -m pytest tests/test_innate.py --collect-only -q 2>&1 | tail -3)",
       "Bash(python3 -m pytest tests/test_distillation_defense.py tests/test_attack_battery.py tests/test_output.py tests/test_adaptive.py tests/test_healing.py tests/test_metrics.py -q --tb=short -p no:warnings 2>&1 | tail -10)",
       "Bash(python3 -m pytest tests/test_distillation_defense.py tests/test_attack_battery.py tests/test_metrics.py -q --tb=short -p no:warnings 2>&1 | tail -5)",
-      "Bash(cd /home/jeremy && AEGIS_SKIP_MODEL_LOAD=true python3 -c \"from aegis.main import _init_layers; print\\('Import OK'\\)\" 2>&1)"
+      "Bash(cd /home/jeremy && AEGIS_SKIP_MODEL_LOAD=true python3 -c \"from aegis.main import _init_layers; print\\('Import OK'\\)\" 2>&1)",
+      "Bash(cd /home/jeremy && PYTHONPATH=/home/jeremy python3 -m red_team.multimodal_apt.run_multimodal_apt --url http://localhost:8000 --api-key aegis-dev-key 2>&1)",
+      "Bash(PYTHONPATH=/home/jeremy:/home/jeremy/aegis python3 -m red_team.multimodal_apt.run_multimodal_apt --url http://localhost:8000 --api-key aegis-dev-key 2>&1)",
+      "Bash(ls -la /home/jeremy/aegis/red_team/data/multimodal_apt_* 2>&1)",
+      "Bash(ls -la /home/jeremy/aegis/red_team/data/MULTIMODAL_APT_* 2>&1)",
+      "Bash(python3 -c \"\nimport json\nwith open\\('/home/jeremy/aegis/red_team/data/multimodal_apt_results_final.json'\\) as f:\n    data = json.load\\(f\\)\nprint\\('Campaigns:', len\\(data['campaigns']\\)\\)\nprint\\('Overall detection:', data['meta']['overall_detection_rate']\\)\nprint\\('Grade:', data['meta']['grade']\\)\nfor c in data['campaigns']:\n    print\\(f'  {c[\\\\\"campaign_name\\\\\"]}: {c[\\\\\"detection_rate\\\\\"]:.1%} \\({c[\\\\\"blocked\\\\\"]}/{c[\\\\\"total_attacks\\\\\"]}\\)'\\)\n\" 2>&1)"
     ]
   }
 }
