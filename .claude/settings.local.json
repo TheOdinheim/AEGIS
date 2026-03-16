@@ -70,7 +70,26 @@
       "Bash(python3 -m pytest tests/test_whitebox.py -x -q --tb=short -p no:warnings 2>&1)",
       "Bash(python3 -m pytest tests/test_whitebox.py tests/test_distillation_defense.py tests/test_attack_battery.py tests/test_metrics.py tests/test_multimodal_apt.py -q --tb=short -p no:warnings 2>&1 | tail -10)",
       "Bash(python3 -m pytest tests/ --collect-only -q --ignore=tests/benchmark --ignore=tests/stress/test_stress.py -p no:warnings 2>&1 | tail -3)",
-      "Bash(python3 -m pytest tests/test_whitebox.py -q --tb=short -p no:warnings 2>&1)"
+      "Bash(python3 -m pytest tests/test_whitebox.py -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('data/patterns.json'\\)\\); print\\(f'Total patterns: {len\\(d[\\\\\"patterns\\\\\"]\\)}'\\); print\\(f'Last pattern ID: {d[\\\\\"patterns\\\\\"][-1][\\\\\"id\\\\\"]}'\\)\")",
+      "Bash(python3 -m pytest tests/ -x -q --tb=line -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py -v --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/ -q --tb=line -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1 | tail -15)",
+      "Bash(python3 -m pytest tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -15)",
+      "Bash(python3 -m pytest tests/test_innate.py::TestRegexEngine -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_threat_model_fixes.py::TestRegexEngineNormalization -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_signatures.py -q --tb=short -p no:warnings 2>&1 | tail -10)",
+      "Bash(python3 -m pytest tests/test_innate.py tests/test_adaptive.py tests/test_attack_battery.py tests/test_red_team.py tests/test_red_team_regression.py tests/test_normalization_hardened.py tests/test_pii_hardened.py tests/test_whitebox.py tests/test_whitebox_hardening.py -q --tb=line -p no:warnings 2>&1 | tail -10)",
+      "Bash(python3 -m pytest tests/ --co -q -p no:warnings --ignore=tests/benchmark --ignore=tests/stress 2>&1 | tail -3)",
+      "Bash(python3 -m pytest tests/ --co -q -p no:warnings --ignore=tests/stress 2>&1 | tail -3)",
+      "Bash(python3 -m pytest tests/ --co -q -p no:warnings 2>&1 | tail -3)",
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_whitebox.py tests/test_innate.py tests/test_adaptive.py tests/test_attack_battery.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_adaptive.py::TestAdaptiveAnalysisLayer::test_classifier_offline_does_not_block_analysis -v --tb=short -p no:warnings 2>&1 | tail -20)",
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_whitebox.py tests/test_innate.py -q --tb=line -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -3)",
+      "Bash(python3 -m pytest tests/test_whitebox.py tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_red_team_regression.py tests/test_normalization_hardened.py tests/test_output_enhanced.py -q --tb=line -p no:warnings 2>&1 | tail -5)"
     ]
   }
 }

@@ -25,6 +25,7 @@ from typing import Any, Callable
 from aegis.config import AdaptiveConfig, MemoryConfig
 from aegis.layers.adaptive.behavioral import BehavioralAnalyzer
 from aegis.layers.adaptive.injection_classifier import InjectionClassifier
+from aegis.layers.adaptive.margin_booster import ConfidenceMarginBooster
 from aegis.layers.adaptive.multi_turn import MultiTurnAnalyzer
 from aegis.layers.adaptive.semantic_search import SemanticSearchAnalyzer
 from aegis.layers.memory.threat_vault import ThreatVault
@@ -108,6 +109,7 @@ class AdaptiveAnalysisLayer:
         self._semantic = SemanticSearchAnalyzer(config, threat_vault, embed_fn=embed_fn)
         self._behavioral = BehavioralAnalyzer(config)
         self._multi_turn = MultiTurnAnalyzer(config, embed_fn=embed_fn)
+        self._margin_booster = ConfidenceMarginBooster()
 
     @property
     def classifier(self) -> InjectionClassifier:
@@ -153,6 +155,39 @@ class AdaptiveAnalysisLayer:
                 self._multi_turn.analyze(context, innate_report=innate_report),
             )
         )
+
+        # Margin boosting for fragile DeBERTa detections (Finding 2 hardening)
+        if (
+            classifier_result.is_threat
+            and 0.85 <= classifier_result.confidence <= 0.95
+        ):
+            embed_fn = self._semantic.embed if self._semantic else None
+            boost_result = await self._margin_booster.boost(
+                prompt,
+                classifier_result.confidence,
+                threat_vault=self._vault,
+                embed_fn=embed_fn,
+            )
+            if boost_result.boost_amount > 0:
+                logger.info(
+                    "Margin boost: %.4f → %.4f (strategies: %s)",
+                    boost_result.original_confidence,
+                    boost_result.boosted_confidence,
+                    ", ".join(boost_result.strategies_triggered),
+                )
+                # Update classifier result with boosted confidence
+                classifier_result = AdaptiveAnalysisResult(
+                    analyzer_id=classifier_result.analyzer_id,
+                    is_threat=classifier_result.is_threat,
+                    confidence=boost_result.boosted_confidence,
+                    threat_category=classifier_result.threat_category,
+                    details={
+                        **classifier_result.details,
+                        "margin_boost": boost_result.boost_amount,
+                        "margin_strategies": boost_result.strategies_triggered,
+                    },
+                    dca_signals=classifier_result.dca_signals,
+                )
 
         results = [classifier_result, semantic_result, behavioral_result, multi_turn_result]
 

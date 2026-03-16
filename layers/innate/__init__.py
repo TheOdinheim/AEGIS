@@ -27,6 +27,7 @@ from aegis.layers.innate.blocklist import BlocklistScanner
 from aegis.layers.innate.token_guard import TokenGuard
 from aegis.layers.innate.pii_regex import PIIRegexScanner
 from aegis.layers.innate.canary_verifier import CanaryVerifier
+from aegis.layers.innate.sliding_window import SlidingWindowScanner
 
 
 class InnateDetectionLayer:
@@ -52,6 +53,7 @@ class InnateDetectionLayer:
         self._token_guard = TokenGuard(max_tokens=128_000)
         self._pii_regex = PIIRegexScanner()
         self._canary_verifier = CanaryVerifier(canary_config)
+        self._sliding_window = SlidingWindowScanner()
 
     @property
     def regex_engine(self) -> RegexEngine:
@@ -93,6 +95,26 @@ class InnateDetectionLayer:
             if self._canary_verifier.enabled and system_prompt
             else _noop_scan("canary_verifier"),
         )
+
+        # Run sliding window scanner on long inputs for padding dilution defense
+        # This catches injections buried in benign padding that full-text regex misses
+        regex_caught = any(
+            r.scanner_id == "regex_engine" and r.is_threat for r in results
+        )
+        sw_result = await self._sliding_window.scan(prompt, self._regex_engine)
+        if sw_result.triggered and not regex_caught and sw_result.scan_result:
+            # Padding dilution detected: window found injection that full-text missed
+            results.append(ScanResult(
+                scanner_id="sliding_window",
+                is_threat=True,
+                confidence=sw_result.confidence,
+                threat_category=sw_result.scan_result.threat_category,
+                matched_patterns=[
+                    f"sliding_window[{sw_result.window_index}/{sw_result.total_windows}]: "
+                    f"padding dilution detected"
+                ] + sw_result.scan_result.matched_patterns,
+                latency_ms=0.0,
+            ))
 
         elapsed_ms = (time.perf_counter() - start) * 1000
 

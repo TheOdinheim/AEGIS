@@ -39,11 +39,12 @@ aegis/
 │   ├── barrier.py                   # L1: Rate limiting, auth, schema validation
 │   ├── innate/
 │   │   ├── __init__.py              # InnateDetectionLayer orchestrator
-│   │   ├── regex_engine.py          # Scanner 1: 170+ patterns, 8-step Unicode normalization (200+ homoglyphs)
+│   │   ├── regex_engine.py          # Scanner 1: 182 patterns, 8-step Unicode normalization (200+ homoglyphs)
 │   │   ├── blocklist.py             # Scanner 2: Bloom filter with hash confirmation
 │   │   ├── token_guard.py           # Scanner 4: Token counting and distribution analysis
 │   │   ├── pii_regex.py             # Scanner 5: Fast PII regex (SSN, CC, email, phone)
-│   │   └── canary_verifier.py       # Scanner 6: HMAC-SHA256 canary token (NK cell analog)
+│   │   ├── canary_verifier.py       # Scanner 6: HMAC-SHA256 canary token (NK cell analog)
+│   │   └── sliding_window.py        # Scanner 7: Sliding window for padding dilution defense
 │   ├── adaptive/
 │   │   ├── __init__.py              # AdaptiveAnalysisLayer with antibody callback
 │   │   ├── injection_classifier.py  # DeBERTa-v3 prompt injection (ONNX, ~20ms)
@@ -51,7 +52,8 @@ aegis/
 │   │   ├── behavioral.py            # Baseline anomaly detection (PSI, KS tests)
 │   │   ├── multi_turn.py            # Multi-turn: escalation trajectory, boundary testing, rapid-fire, topic drift
 │   │   ├── distillation_defense.py  # Cross-session extraction detection (5 strategies)
-│   │   └── distillation_models.py   # Data models: InteractionRecord, DistillationSignal/Report, ReasoningScanResult
+│   │   ├── distillation_models.py   # Data models: InteractionRecord, DistillationSignal/Report, ReasoningScanResult
+│   │   └── margin_booster.py        # Confidence margin booster for fragile DeBERTa detections
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   └── signatures.py            # Clonal selection generator + SignatureStore
@@ -187,6 +189,7 @@ aegis/
 │   ├── test_multimodal_apt.py         # Multimodal APT: payload gen, adaptive attacker, behavior validation, integration (59 tests)
 │   ├── test_distillation_defense.py   # Distillation defense: 5 strategies, reasoning sanitizer, integration (50 tests)
 │   ├── test_whitebox.py               # White-box: token importance, 4 attacks, boundary probe, corpus gen (26 tests)
+│   ├── test_whitebox_hardening.py     # White-box hardening: sliding window, margin booster, paraphrase patterns (30 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -374,7 +377,7 @@ APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/pa
 
 ## Current Metrics (as of 2026-03-13)
 
-- Tests: 2235 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2265 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
 - Distillation defense: 50 tests (5 strategies + reasoning sanitizer + integration)
 - Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)
@@ -383,7 +386,7 @@ APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/pa
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
 - FPR: 0.00% (0/500) — with DeBERTa loaded
-- Pattern library: 170 patterns (+ dynamic patterns from clonal selection at runtime)
+- Pattern library: 182 patterns (+ 12 paraphrase evasion + dynamic patterns from clonal selection at runtime)
 - Threat model: 23 threats (T1-T23), pen test recommendations in docs/
 - Live demo: All 6 scenarios working with Ollama (llama3.2:3b), DeBERTa loads in ~30s
 
