@@ -186,6 +186,7 @@ aegis/
 │   ├── test_multimodal_integration.py # Multimodal Phase 4: end-to-end integration via TestClient (12 tests)
 │   ├── test_multimodal_apt.py         # Multimodal APT: payload gen, adaptive attacker, behavior validation, integration (59 tests)
 │   ├── test_distillation_defense.py   # Distillation defense: 5 strategies, reasoning sanitizer, integration (50 tests)
+│   ├── test_whitebox.py               # White-box: token importance, 4 attacks, boundary probe, corpus gen (26 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -239,6 +240,14 @@ aegis/
 │   │   ├── evasion_fingerprinter.py # EvasionFingerprinter: 12 root cause categories, bypass method ID
 │   │   ├── hardening_generator.py   # HardeningGenerator: auto-generates detection rules from evasions
 │   │   └── run_adaptive.py          # Orchestrator: 5-step pipeline, CLI, report generation
+│   ├── whitebox/                    # White-box adversarial testing against DeBERTa
+│   │   ├── __init__.py              # Data models: AdversarialExample, TokenImportanceReport, etc.
+│   │   ├── token_importance.py      # Leave-one-out token importance analysis
+│   │   ├── deberta_attacker.py      # 4 attack techniques: token replacement, padding, semantic, gradient
+│   │   ├── boundary_probe.py        # Interpolation probing + threshold sensitivity mapping
+│   │   ├── adversarial_corpus_generator.py # Scale adversarial corpus with deduplication
+│   │   ├── report.py                # JSON + markdown white-box assessment reports
+│   │   └── run_whitebox.py          # CLI: --mode direct|live, 7-phase assessment pipeline
 │   └── data/
 │       ├── adversarial_corpus.json  # 120 pre-generated attacks (50 L2 + 30 L3 + 20 L5 + 20 multi-layer)
 │       ├── campaign_results_initial.json  # Initial APT campaign results (before fixes)
@@ -365,7 +374,7 @@ APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/pa
 
 ## Current Metrics (as of 2026-03-13)
 
-- Tests: 2209 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2235 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
 - Distillation defense: 50 tests (5 strategies + reasoning sanitizer + integration)
 - Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)

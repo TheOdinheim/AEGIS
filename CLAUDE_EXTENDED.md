@@ -595,3 +595,108 @@ Detection categories: chain-of-thought (10 patterns), governance disclosure (11 
 | `AEGIS_DISTILLATION_WINDOW_HOURS` | `24.0` | Analysis window (hours, ≥1.0) |
 | `AEGIS_DISTILLATION_MAX_HISTORY` | `10000` | Max records per API key |
 | `AEGIS_REASONING_TRACE_MODE` | `monitor` | monitor/redact/summarize |
+
+---
+
+## White-Box Adversarial Testing
+
+Unlike all previous red team work (black-box: observe inputs/outputs only), white-box testing uses knowledge of DeBERTa's architecture and decision patterns to craft mathematically optimized adversarial examples. Located in `red_team/whitebox/`.
+
+### Architecture
+
+| Module | Purpose |
+|--------|---------|
+| `__init__.py` | Data models: AdversarialExample, TokenImportanceReport, PaddingAnalysis, etc. |
+| `token_importance.py` | Leave-one-out token importance analysis |
+| `deberta_attacker.py` | 4 gradient-approximated attack techniques |
+| `boundary_probe.py` | Confidence boundary mapping (interpolation + sensitivity) |
+| `adversarial_corpus_generator.py` | Scale corpus generation with deduplication |
+| `report.py` | JSON + markdown assessment reports |
+| `run_whitebox.py` | CLI entry point (direct or live mode) |
+
+### Token Importance Analysis
+
+For a given injection prompt that DeBERTa correctly classifies:
+1. Remove each token one at a time (leave-one-out)
+2. Re-classify the modified prompt
+3. Token importance = confidence_drop when that token is removed
+4. **Critical tokens**: tokens whose removal drops confidence below the 0.90 block threshold
+
+This reveals DeBERTa's attention profile — which words it considers most injection-indicative.
+
+### Four Attack Techniques
+
+**Attack 1 — Critical Token Replacement**
+- For each critical token, replace with synonyms preserving injection semantics
+- Synonym table covers 25+ injection-relevant words (ignore→disregard/skip/bypass, override→replace/supersede, etc.)
+- Tests each replacement to find the one minimizing confidence while keeping injection meaningful
+- Preserves original casing patterns
+
+**Attack 2 — Benign Prefix/Suffix Padding**
+- Adds increasing amounts of benign business text before/after the injection
+- Finds the exact padding ratio where DeBERTa drops below threshold
+- Maps the attention dilution boundary — how many benign words needed to drown out injection signal
+- Uses 15 diverse business sentences as padding pool
+
+**Attack 3 — Semantic Preservation**
+- Iteratively replaces words with semantically equivalent alternatives
+- At each step, selects the synonym that most reduces confidence
+- Stops when confidence drops below threshold
+- Result: semantically equivalent injection that evades DeBERTa
+- Semantic preservation measured via Jaccard word overlap (0.0-1.0)
+
+**Attack 4 — Confidence Gradient Estimation**
+- Creates N variants by replacing one word at a time with random alternatives
+- Measures confidence for each to estimate "gradient direction"
+- Per-position sensitivity scores approximate which word positions most affect classification
+- Uses estimated gradient to generate optimized adversarial examples targeting top-3 sensitive positions
+- Deterministic RNG (seed=42) for reproducibility
+
+### Decision Boundary Mapping
+
+**Interpolation Probing**: Takes known-malicious (confidence ~0.95) and known-benign (confidence ~0.05) prompts. Progressively replaces malicious words with benign words. Finds exact interpolation ratio where confidence crosses 0.90 block threshold.
+
+**Threshold Sensitivity**: For each injection prompt, measures the "margin" — how much change is needed to cross the threshold. Prompts with small margins (<0.1) are fragile detections; prompts with large margins (>0.3) are robust.
+
+### Adversarial Corpus Generation
+
+Runs all attack techniques against a set of 20 default injection prompts:
+- Collects all successful evasions (confidence < 0.90 while still semantically injections)
+- Deduplicates by Jaccard similarity (>0.95 = duplicate)
+- Produces technique breakdown: per-technique attempt/evasion counts
+- Mean confidence reduction across all variants
+
+### Hardening Pipeline (Phase B)
+
+For adversarial examples that successfully evade DeBERTa:
+1. Add to threat vault as seed embeddings (antibodies) — caught by L4 semantic search next time
+2. Generate L2 regex patterns if a pattern emerges (e.g., synonym substitutions)
+3. Add to benchmark corpus for regression testing
+
+### Running
+
+```bash
+# Direct mode (imports DeBERTa classifier, gives actual confidence scores):
+python3 -m red_team.whitebox.run_whitebox --mode direct
+
+# Live mode (sends requests to running AEGIS):
+python3 -m red_team.whitebox.run_whitebox --mode live --url http://localhost:8000 --api-key KEY
+
+# Quick mode (fewer prompts):
+python3 -m red_team.whitebox.run_whitebox --mode direct --quick
+
+# Skip gradient estimation (faster):
+python3 -m red_team.whitebox.run_whitebox --mode direct --skip-gradient
+```
+
+### Tests
+
+`tests/test_whitebox.py` — 26 tests across 5 classes. All use mock classifier (no DeBERTa required for CI).
+
+| Class | Tests | Validates |
+|-------|-------|-----------|
+| TestTokenImportance | 5 | Leave-one-out analysis, critical tokens, empty text |
+| TestDeBERTaAttacker | 8 | All 4 attacks, confidence reduction, semantic scores |
+| TestBoundaryProbe | 5 | Interpolation, sensitivity, step granularity |
+| TestCorpusGenerator | 4 | Corpus generation, evasion rate, deduplication |
+| TestIntegration | 4 | Full pipeline, report JSON/markdown, CLI, evades property |
