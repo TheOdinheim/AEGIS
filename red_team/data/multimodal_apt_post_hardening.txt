@@ -1,0 +1,28 @@
+
+Running Campaign: PRISM...
+  PRISM: 23/25 blocked (92.0% detection rate)
+
+Running Campaign: DEEP COVER...
+  DEEP COVER: 20/20 blocked (100.0% detection rate)
+
+Running Campaign: WHISPER...
+  WHISPER: 12/12 blocked (100.0% detection rate)
+
+Running Campaign: CHIMERA...
+  CHIMERA: 13/20 blocked (65.0% detection rate)
+
+Running Campaign: PUPPET MASTER...
+  PUPPET MASTER: 12/12 blocked (100.0% detection rate)
+
+Running Campaign: ADAPTATION...
+  ADAPTATION: 20/20 blocked (100.0% detection rate)
+
+Running Campaign: TOTAL WAR...
+  TOTAL WAR: 175/199 blocked (91.0% detection rate)
+  FPR: 85.5%
+
+Overall Grade: ADEQUATE
+Detection Rate: 89.3%
+FPR: 30.5%
+
+Report saved to red_team/data/
