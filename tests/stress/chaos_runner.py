@@ -92,7 +92,7 @@ class ChaosRunner:
             policy_engine: PolicyEngine instance.
             level: ThreatLevel enum value.
         """
-        original = policy_engine._threat_level
+        original = policy_engine.threat_level
         try:
             policy_engine.threat_level = level
             yield

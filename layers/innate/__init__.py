@@ -28,6 +28,7 @@ from aegis.layers.innate.token_guard import TokenGuard
 from aegis.layers.innate.pii_regex import PIIRegexScanner
 from aegis.layers.innate.canary_verifier import CanaryVerifier
 from aegis.layers.innate.sliding_window import SlidingWindowScanner
+from aegis.layers.innate.multilang_detector import MultiLangDetector
 
 
 class InnateDetectionLayer:
@@ -54,6 +55,7 @@ class InnateDetectionLayer:
         self._pii_regex = PIIRegexScanner()
         self._canary_verifier = CanaryVerifier(canary_config)
         self._sliding_window = SlidingWindowScanner()
+        self._multilang = MultiLangDetector()
 
     @property
     def regex_engine(self) -> RegexEngine:
@@ -95,6 +97,11 @@ class InnateDetectionLayer:
             if self._canary_verifier.enabled and system_prompt
             else _noop_scan("canary_verifier"),
         )
+
+        # Run multi-language injection detector
+        multilang_result = await self._multilang.scan(prompt)
+        if multilang_result.is_threat:
+            results.append(multilang_result)
 
         # Run sliding window scanner on long inputs for padding dilution defense
         # This catches injections buried in benign padding that full-text regex misses

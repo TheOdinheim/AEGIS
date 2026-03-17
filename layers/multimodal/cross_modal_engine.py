@@ -27,6 +27,12 @@ from typing import Any
 
 from aegis.models.scan_result import ScanResult, ThreatCategory
 
+# Import regex engine for re-scanning concatenated text
+try:
+    from aegis.layers.innate.regex_engine import RegexEngine
+except ImportError:
+    RegexEngine = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Volume thresholds for flooding detection
@@ -43,6 +49,7 @@ class CrossModalReport:
     semantic_inconsistency_score: float = 0.0
     cross_modal_escalation: bool = False
     volume_anomaly: bool = False
+    fragmentation_attack_detected: bool = False
     combined_threat_score: float = 0.0
     details: dict[str, Any] = field(default_factory=dict)
     scan_results: list[ScanResult] = field(default_factory=list)
@@ -113,12 +120,14 @@ class CrossModalCorrelationEngine:
         max_images: int = _MAX_IMAGES_PER_REQUEST,
         max_documents: int = _MAX_DOCUMENTS_PER_REQUEST,
         max_audio: int = _MAX_AUDIO_PER_REQUEST,
+        regex_engine: Any | None = None,
     ):
         self._laundering_amp = laundering_amplification
         self._inconsistency_threshold = inconsistency_threshold
         self._max_images = max_images
         self._max_documents = max_documents
         self._max_audio = max_audio
+        self._regex_engine = regex_engine
         # Per-session modality history: session_id → list of (modalities_used, max_threat)
         self._session_history: dict[str, list[dict]] = defaultdict(list)
 
@@ -134,6 +143,9 @@ class CrossModalCorrelationEngine:
         image_count: int = 0,
         document_count: int = 0,
         audio_count: int = 0,
+        image_text: str = "",
+        document_text: str = "",
+        audio_text: str = "",
     ) -> CrossModalReport:
         """Run cross-modal correlation analysis.
 
@@ -263,6 +275,45 @@ class CrossModalCorrelationEngine:
                 matched_patterns=[f"volume_anomaly: {', '.join(volume_issues)}"],
                 latency_ms=0.0,
             ))
+
+        # Check 5: Cross-modal text concatenation re-scan
+        # Catches fragmentation attacks where injection is split across modalities
+        if self._regex_engine is not None:
+            text_parts = []
+            if image_text:
+                text_parts.append(image_text)
+            if document_text:
+                text_parts.append(document_text)
+            if audio_text:
+                text_parts.append(audio_text)
+
+            # Only re-scan if we have text from 2+ modalities
+            if len(text_parts) >= 2:
+                combined_text = " ".join(text_parts)
+                try:
+                    concat_scan = await self._regex_engine.scan(combined_text)
+                    if concat_scan.is_threat and concat_scan.confidence >= 0.85:
+                        # Check if individual modality scans missed this
+                        individual_caught = any(
+                            s.is_threat and s.confidence >= 0.85
+                            for s in (image_scans + document_scans + audio_scans)
+                        )
+                        if not individual_caught:
+                            report.fragmentation_attack_detected = True
+                            report.details["fragmentation_modalities"] = len(text_parts)
+                            report.details["fragmentation_combined_length"] = len(combined_text)
+                            results.append(ScanResult(
+                                scanner_id="cross_modal_fragmentation",
+                                is_threat=True,
+                                confidence=min(concat_scan.confidence * 1.1, 1.0),
+                                threat_category=ThreatCategory.PROMPT_INJECTION,
+                                matched_patterns=[
+                                    f"fragmentation_attack: injection split across {len(text_parts)} modalities"
+                                ] + concat_scan.matched_patterns,
+                                latency_ms=0.0,
+                            ))
+                except Exception as e:
+                    logger.warning("Cross-modal concat re-scan failed: %s", e)
 
         # Compute combined threat score
         all_confidences = [r.confidence for r in results if r.is_threat]

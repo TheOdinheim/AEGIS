@@ -89,7 +89,16 @@
       "Bash(python3 -m pytest tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -3)",
       "Bash(python3 -m pytest tests/test_whitebox.py tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
       "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_innate.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
-      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_red_team_regression.py tests/test_normalization_hardened.py tests/test_output_enhanced.py -q --tb=line -p no:warnings 2>&1 | tail -5)"
+      "Bash(python3 -m pytest tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_red_team_regression.py tests/test_normalization_hardened.py tests/test_output_enhanced.py -q --tb=line -p no:warnings 2>&1 | tail -5)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py -x -q --tb=short -p no:warnings 2>&1 | tail -30)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py -x -q --tb=short -p no:warnings 2>&1 | tail -20)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/ -x -q --tb=short -p no:warnings --ignore=tests/benchmark --ignore=tests/stress -x 2>&1 | tail -20)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_attack_battery.py tests/test_cross_modal.py -q --tb=short -p no:warnings 2>&1 | tail -10)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/ -q --tb=no -p no:warnings --ignore=tests/benchmark --ignore=tests/stress --co 2>&1 | tail -5)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/ -q --tb=no -p no:warnings --ignore=tests/benchmark --co 2>&1 | tail -3)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_attack_battery.py tests/test_cross_modal.py tests/test_multimodal_integration.py -q --tb=short -p no:warnings 2>&1 | tail -10)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py -x -q --tb=short -p no:warnings 2>&1 | tail -5)",
+      "Bash(PYTHONPATH=/home/jeremy python3 -m pytest tests/test_production_hardening.py tests/test_whitebox_hardening.py tests/test_innate.py tests/test_adaptive.py tests/test_output.py tests/test_healing.py tests/test_attack_battery.py tests/test_cross_modal.py tests/test_multimodal_integration.py tests/stress/test_chaos_regression.py -q --tb=short -p no:warnings 2>&1 | tail -10)"
     ]
   }
 }

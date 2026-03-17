@@ -31,6 +31,9 @@ class SteganalysisResult:
     rs_score: float = 0.0
     rs_suspicious: bool = False
     overall_suspicious: bool = False
+    alpha_channel_suspicious: bool = False
+    alpha_channel_score: float = 0.0
+    alpha_hidden_text: str = ""
     details: str = ""
     latency_ms: float = 0.0
 
@@ -85,7 +88,10 @@ class Steganalyzer:
         rs_score = self._rs_analysis(channel)
         rs_suspicious = abs(rs_score) > self._rs_threshold
 
-        overall = chi_suspicious or rs_suspicious
+        # Alpha channel steganalysis
+        alpha_score, alpha_suspicious, alpha_text = self.analyze_alpha_channel(img)
+
+        overall = chi_suspicious or rs_suspicious or alpha_suspicious
 
         details_parts = []
         if chi_suspicious:
@@ -96,16 +102,102 @@ class Steganalyzer:
             details_parts.append(
                 f"RS analysis score {rs_score:.3f} exceeds threshold {self._rs_threshold}"
             )
+        if alpha_suspicious:
+            details_parts.append(
+                f"Alpha channel LSB score {alpha_score:.3f} suspicious"
+                + (f", decoded text: '{alpha_text[:50]}'" if alpha_text else "")
+            )
 
-        return SteganalysisResult(
+        result = SteganalysisResult(
             chi_square_score=chi_score,
             chi_square_suspicious=chi_suspicious,
             rs_score=rs_score,
             rs_suspicious=rs_suspicious,
             overall_suspicious=overall,
+            alpha_channel_suspicious=alpha_suspicious,
+            alpha_channel_score=alpha_score,
+            alpha_hidden_text=alpha_text,
             details="; ".join(details_parts) if details_parts else "No steganographic indicators",
             latency_ms=(time.perf_counter() - start) * 1000,
         )
+
+        return result
+
+    def analyze_alpha_channel(self, img: Image.Image) -> tuple[float, bool, str]:
+        """Analyze alpha channel for steganographic payloads.
+
+        Detects hidden data in PNG alpha channel LSBs:
+        1. Chi-square test on alpha LSB distribution
+        2. Attempt ASCII decode of alpha LSBs
+
+        Returns: (score, is_suspicious, decoded_text)
+        """
+        if img.mode not in ("RGBA", "LA", "PA"):
+            return 0.0, False, ""
+
+        try:
+            arr = np.array(img)
+            if arr.ndim < 3:
+                return 0.0, False, ""
+
+            # Extract alpha channel (last channel)
+            alpha = arr[:, :, -1].flatten()
+
+            if len(alpha) < 100:
+                return 0.0, False, ""
+
+            # Chi-square test on alpha LSBs
+            chi_score = self._chi_square_lsb(alpha)
+
+            # Attempt to decode LSBs as ASCII text
+            decoded = self._decode_lsb_ascii(alpha)
+
+            # Score: chi-square result + bonus if readable text found
+            is_suspicious = chi_score > self._chi_threshold
+            if decoded:
+                is_suspicious = True
+                chi_score = max(chi_score, 0.90)
+
+            return chi_score, is_suspicious, decoded
+        except Exception as e:
+            logger.warning("Alpha channel analysis failed: %s", e)
+            return 0.0, False, ""
+
+    def _decode_lsb_ascii(self, pixels: np.ndarray, max_bytes: int = 256) -> str:
+        """Attempt to decode LSBs of pixel values as ASCII text.
+
+        Extracts least significant bits, groups into bytes, checks if
+        the result contains readable ASCII text.
+        """
+        # Extract LSBs
+        lsbs = pixels & 1
+
+        # Group into bytes (8 bits each)
+        n_bytes = min(len(lsbs) // 8, max_bytes)
+        if n_bytes < 4:
+            return ""
+
+        bits = lsbs[:n_bytes * 8]
+        byte_values = np.packbits(bits)
+
+        # Try to decode as ASCII
+        try:
+            raw = bytes(byte_values[:n_bytes])
+            # Check for printable ASCII ratio
+            printable = sum(1 for b in raw if 32 <= b <= 126)
+            ratio = printable / len(raw)
+
+            if ratio >= 0.7 and len(raw) >= 4:
+                # Decode and return printable portion
+                decoded = raw.decode("ascii", errors="replace")
+                # Strip non-printable chars
+                cleaned = "".join(c if 32 <= ord(c) <= 126 else "" for c in decoded)
+                if len(cleaned) >= 4:
+                    return cleaned
+        except Exception:
+            pass
+
+        return ""
 
     def _chi_square_lsb(self, pixels: np.ndarray) -> float:
         """Chi-square test on LSB distribution.

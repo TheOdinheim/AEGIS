@@ -18,6 +18,7 @@ Barrier could emit valid-looking contexts for invalid requests.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import time
 import uuid
@@ -364,7 +365,9 @@ class BarrierLayer:
         api_key = self._extract_api_key(headers)
         if not api_key:
             raise BarrierReject(401, "Missing API key")
-        if self._valid_keys and api_key not in self._valid_keys:
+        if self._valid_keys and not any(
+            hmac.compare_digest(api_key, k) for k in self._valid_keys
+        ):
             raise BarrierReject(401, "Invalid API key")
         api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 

@@ -27,6 +27,7 @@ disable the cascade.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -572,7 +573,7 @@ def _is_authenticated(request: Request) -> bool:
         return False
     auth = request.headers.get("authorization", "")
     if auth.startswith("Bearer "):
-        return auth[7:] == _config.api_key
+        return hmac.compare_digest(auth[7:], _config.api_key)
     return False
 
 

@@ -23,6 +23,7 @@ and cryptographically signed. Policy changes trigger audit events.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -34,6 +35,14 @@ from aegis.models.policy_decision import PolicyAction, PolicyDecision, PolicyTie
 from aegis.models.scan_result import InnateScanReport, ThreatCategory
 
 logger = logging.getLogger(__name__)
+
+# TLI auto-decay timers (seconds without new threats before de-escalation)
+_TLI_DECAY_TIMERS = {
+    ThreatLevel.RED: 300,     # RED -> ORANGE after 5 min
+    ThreatLevel.ORANGE: 180,  # ORANGE -> YELLOW after 3 min
+    ThreatLevel.YELLOW: 120,  # YELLOW -> BLUE after 2 min
+    ThreatLevel.BLUE: 60,     # BLUE -> GREEN after 1 min
+}
 
 # Hard-coded global safety rules that CANNOT be overridden by any policy tier
 _HARD_BLOCK_CATEGORIES = {
@@ -85,28 +94,79 @@ class PolicyEngine:
         tenant_manager: Any | None = None,
     ):
         self._config = config or PolicyConfig()
-        self._threat_level = self._config.default_threat_level
+        self._threat_levels: dict[str, ThreatLevel] = {
+            "__global__": self._config.default_threat_level,
+        }
+        self._threat_level_timestamps: dict[str, float] = {
+            "__global__": time.monotonic(),
+        }
+        self._auto_decay_enabled = os.environ.get(
+            "AEGIS_TLI_AUTO_DECAY_ENABLED", "true"
+        ).lower() in ("true", "1", "yes")
         self._tenant_policies: dict[str, TenantPolicy] = {}
         self._tenant_manager = tenant_manager
         self._detection_count = 0
         self._baseline_detection_rate = 1.0  # detections per window
         self._escalation_history: list[dict[str, Any]] = []
 
-    @property
-    def threat_level(self) -> ThreatLevel:
-        return self._threat_level
+    # --- Per-tenant TLI methods ---
 
-    @threat_level.setter
-    def threat_level(self, level: ThreatLevel) -> None:
-        old = self._threat_level
-        self._threat_level = level
+    def get_threat_level(self, tenant_id: str = "__global__") -> ThreatLevel:
+        """Get threat level for a specific tenant (falls back to global)."""
+        self._check_decay(tenant_id)
+        if tenant_id in self._threat_levels:
+            return self._threat_levels[tenant_id]
+        return self._threat_levels.get("__global__", self._config.default_threat_level)
+
+    def set_threat_level(self, level: ThreatLevel, tenant_id: str = "__global__") -> None:
+        """Set threat level for a specific tenant."""
+        old = self.get_threat_level(tenant_id)
+        self._threat_levels[tenant_id] = level
+        self._threat_level_timestamps[tenant_id] = time.monotonic()
         if old != level:
             self._escalation_history.append({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant_id": tenant_id,
                 "from": old.name,
                 "to": level.name,
             })
-            logger.warning("Threat level changed: %s -> %s", old.name, level.name)
+            logger.warning("Threat level changed for %s: %s -> %s", tenant_id, old.name, level.name)
+
+    def _check_decay(self, tenant_id: str) -> None:
+        """Check if TLI should auto-decay for this tenant."""
+        if not self._auto_decay_enabled:
+            return
+        level = self._threat_levels.get(tenant_id)
+        if level is None or level == ThreatLevel.GREEN:
+            return
+        last_update = self._threat_level_timestamps.get(tenant_id, 0.0)
+        elapsed = time.monotonic() - last_update
+        decay_timer = _TLI_DECAY_TIMERS.get(level)
+        if decay_timer and elapsed >= decay_timer:
+            new_level = ThreatLevel(level.value - 1)
+            self._threat_levels[tenant_id] = new_level
+            self._threat_level_timestamps[tenant_id] = time.monotonic()
+            self._escalation_history.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tenant_id": tenant_id,
+                "from": level.name,
+                "to": new_level.name,
+                "reason": "auto_decay",
+            })
+            logger.info(
+                "TLI auto-decay for %s: %s -> %s (%.0fs elapsed)",
+                tenant_id, level.name, new_level.name, elapsed,
+            )
+
+    # --- Backward-compatible global threat_level property ---
+
+    @property
+    def threat_level(self) -> ThreatLevel:
+        return self.get_threat_level("__global__")
+
+    @threat_level.setter
+    def threat_level(self, level: ThreatLevel) -> None:
+        self.set_threat_level(level, "__global__")
 
     @property
     def tenant_manager(self) -> Any | None:
@@ -173,14 +233,17 @@ class PolicyEngine:
         reasons: list[str] = []
         applied_policies: list[str] = []
 
+        # Resolve per-tenant threat level (with auto-decay)
+        current_threat_level = self.get_threat_level(tenant_id)
+
         # === Tier 1: Global Policies (hard limits) ===
         # RED threat level: fail-closed, block everything
-        if self._threat_level == ThreatLevel.RED:
+        if current_threat_level == ThreatLevel.RED:
             return PolicyDecision(
                 request_id=request_id,
                 action=PolicyAction.BLOCK,
                 triggered_by=PolicyTier.GLOBAL,
-                threat_level=self._threat_level,
+                threat_level=current_threat_level,
                 innate_max_confidence=innate_max,
                 adaptive_mcav=adaptive_mcav,
                 fused_score=1.0,
@@ -198,7 +261,7 @@ class PolicyEngine:
                     request_id=request_id,
                     action=PolicyAction.BLOCK,
                     triggered_by=PolicyTier.GLOBAL,
-                    threat_level=self._threat_level,
+                    threat_level=current_threat_level,
                     innate_max_confidence=innate_max,
                     adaptive_mcav=adaptive_mcav,
                     fused_score=innate_max,
@@ -218,7 +281,7 @@ class PolicyEngine:
                     request_id=request_id,
                     action=PolicyAction.BLOCK,
                     triggered_by=PolicyTier.TENANT,
-                    threat_level=self._threat_level,
+                    threat_level=current_threat_level,
                     innate_max_confidence=innate_max,
                     adaptive_mcav=adaptive_mcav,
                     fused_score=0.0,
@@ -231,6 +294,7 @@ class PolicyEngine:
             custom_decision = self._evaluate_custom_policy(
                 tenant_policy, request_id, innate_max, adaptive_mcav,
                 innate_categories, reasons, applied_policies,
+                current_threat_level,
             )
             if custom_decision:
                 return custom_decision
@@ -253,7 +317,7 @@ class PolicyEngine:
                         request_id=request_id,
                         action=PolicyAction.BLOCK,
                         triggered_by=PolicyTier.TENANT,
-                        threat_level=self._threat_level,
+                        threat_level=current_threat_level,
                         innate_max_confidence=innate_max,
                         adaptive_mcav=adaptive_mcav,
                         fused_score=innate_max,
@@ -269,18 +333,18 @@ class PolicyEngine:
         block_threshold = 0.85
         escalate_threshold = 0.60
 
-        if self._threat_level == ThreatLevel.BLUE:
+        if current_threat_level == ThreatLevel.BLUE:
             reduction = self._config.block_threshold_reduction_blue  # 0.10
             block_threshold *= (1.0 - reduction)
             escalate_threshold *= (1.0 - reduction)
             applied_policies.append("ADAPTIVE-BLUE-THRESHOLD-REDUCTION")
 
-        elif self._threat_level == ThreatLevel.YELLOW:
+        elif current_threat_level == ThreatLevel.YELLOW:
             block_threshold *= 0.75
             escalate_threshold *= 0.75
             applied_policies.append("ADAPTIVE-YELLOW-AGGRESSIVE")
 
-        elif self._threat_level == ThreatLevel.ORANGE:
+        elif current_threat_level == ThreatLevel.ORANGE:
             block_threshold *= 0.60
             escalate_threshold *= 0.50
             applied_policies.append("ADAPTIVE-ORANGE-MAXIMUM")
@@ -289,14 +353,14 @@ class PolicyEngine:
         if fused >= block_threshold:
             reasons.append(
                 f"ADAPTIVE: Fused score {fused:.2f} >= block threshold "
-                f"{block_threshold:.2f} (TLI={self._threat_level.name})"
+                f"{block_threshold:.2f} (TLI={current_threat_level.name})"
             )
             applied_policies.append("ADAPTIVE-FUSED-BLOCK")
             return PolicyDecision(
                 request_id=request_id,
                 action=PolicyAction.BLOCK,
                 triggered_by=PolicyTier.ADAPTIVE,
-                threat_level=self._threat_level,
+                threat_level=current_threat_level,
                 innate_max_confidence=innate_max,
                 adaptive_mcav=adaptive_mcav,
                 fused_score=fused,
@@ -307,17 +371,17 @@ class PolicyEngine:
         if fused >= escalate_threshold:
             reasons.append(
                 f"ADAPTIVE: Fused score {fused:.2f} >= escalate threshold "
-                f"{escalate_threshold:.2f} (TLI={self._threat_level.name})"
+                f"{escalate_threshold:.2f} (TLI={current_threat_level.name})"
             )
             applied_policies.append("ADAPTIVE-FUSED-ESCALATE")
 
             # At YELLOW+, escalate to human review
-            if self._threat_level.value >= self._config.enable_human_review_at.value:
+            if current_threat_level.value >= self._config.enable_human_review_at.value:
                 return PolicyDecision(
                     request_id=request_id,
                     action=PolicyAction.ESCALATE,
                     triggered_by=PolicyTier.ADAPTIVE,
-                    threat_level=self._threat_level,
+                    threat_level=current_threat_level,
                     innate_max_confidence=innate_max,
                     adaptive_mcav=adaptive_mcav,
                     fused_score=fused,
@@ -331,7 +395,7 @@ class PolicyEngine:
                 request_id=request_id,
                 action=PolicyAction.ALLOW_DEGRADED,
                 triggered_by=PolicyTier.ADAPTIVE,
-                threat_level=self._threat_level,
+                threat_level=current_threat_level,
                 innate_max_confidence=innate_max,
                 adaptive_mcav=adaptive_mcav,
                 fused_score=fused,
@@ -347,7 +411,7 @@ class PolicyEngine:
             request_id=request_id,
             action=PolicyAction.ALLOW,
             triggered_by=PolicyTier.ADAPTIVE,
-            threat_level=self._threat_level,
+            threat_level=current_threat_level,
             innate_max_confidence=innate_max,
             adaptive_mcav=adaptive_mcav,
             fused_score=fused,
@@ -408,6 +472,7 @@ class PolicyEngine:
         innate_categories: list[ThreatCategory],
         reasons: list[str],
         applied_policies: list[str],
+        current_threat_level: ThreatLevel | None = None,
     ) -> PolicyDecision | None:
         """Evaluate tenant's custom_policy JSONB rules.
 
@@ -435,7 +500,7 @@ class PolicyEngine:
                         request_id=request_id,
                         action=PolicyAction.BLOCK,
                         triggered_by=PolicyTier.TENANT,
-                        threat_level=self._threat_level,
+                        threat_level=current_threat_level or self.threat_level,
                         innate_max_confidence=innate_max,
                         adaptive_mcav=adaptive_mcav,
                         fused_score=innate_max,
@@ -464,20 +529,22 @@ class PolicyEngine:
 
         return base
 
-    def escalate_threat_level(self) -> ThreatLevel:
+    def escalate_threat_level(self, tenant_id: str = "__global__") -> ThreatLevel:
         """Escalate the threat level by one step.
 
         Returns the new threat level.
         """
-        if self._threat_level.value < ThreatLevel.RED.value:
-            self.threat_level = ThreatLevel(self._threat_level.value + 1)
-        return self._threat_level
+        current = self.get_threat_level(tenant_id)
+        if current.value < ThreatLevel.RED.value:
+            self.set_threat_level(ThreatLevel(current.value + 1), tenant_id)
+        return self.get_threat_level(tenant_id)
 
-    def de_escalate_threat_level(self) -> ThreatLevel:
+    def de_escalate_threat_level(self, tenant_id: str = "__global__") -> ThreatLevel:
         """De-escalate the threat level by one step.
 
         Returns the new threat level.
         """
-        if self._threat_level.value > ThreatLevel.GREEN.value:
-            self.threat_level = ThreatLevel(self._threat_level.value - 1)
-        return self._threat_level
+        current = self.get_threat_level(tenant_id)
+        if current.value > ThreatLevel.GREEN.value:
+            self.set_threat_level(ThreatLevel(current.value - 1), tenant_id)
+        return self.get_threat_level(tenant_id)

@@ -257,7 +257,7 @@ class OPAPolicyEngine:
             adaptive_report=adaptive_report,
             tenant_id=tenant_id,
             model=model,
-            threat_level=self._fallback.threat_level,
+            threat_level=self._fallback.get_threat_level(tenant_id),
             tenant_policy=tenant_policy,
         )
 
@@ -292,7 +292,7 @@ class OPAPolicyEngine:
 
             return parse_opa_response(
                 result, request_id, innate_max, adaptive_mcav,
-                self._fallback.threat_level,
+                self._fallback.get_threat_level(tenant_id),
             )
 
         except Exception as exc:

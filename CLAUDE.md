@@ -44,7 +44,8 @@ aegis/
 │   │   ├── token_guard.py           # Scanner 4: Token counting and distribution analysis
 │   │   ├── pii_regex.py             # Scanner 5: Fast PII regex (SSN, CC, email, phone)
 │   │   ├── canary_verifier.py       # Scanner 6: HMAC-SHA256 canary token (NK cell analog)
-│   │   └── sliding_window.py        # Scanner 7: Sliding window for padding dilution defense
+│   │   ├── sliding_window.py        # Scanner 7: Sliding window for padding dilution defense
+│   │   └── multilang_detector.py    # Scanner 8: Multi-language injection (10 languages, 54 patterns)
 │   ├── adaptive/
 │   │   ├── __init__.py              # AdaptiveAnalysisLayer with antibody callback
 │   │   ├── injection_classifier.py  # DeBERTa-v3 prompt injection (ONNX, ~20ms)
@@ -190,6 +191,7 @@ aegis/
 │   ├── test_distillation_defense.py   # Distillation defense: 5 strategies, reasoning sanitizer, integration (50 tests)
 │   ├── test_whitebox.py               # White-box: token importance, 4 attacks, boundary probe, corpus gen (26 tests)
 │   ├── test_whitebox_hardening.py     # White-box hardening: sliding window, margin booster, paraphrase patterns (30 tests)
+│   ├── test_production_hardening.py   # Production hardening: timing fix, per-tenant TLI, alpha steg, multilang, OCR, auto-decay (60 tests)
 │   ├── stress/
 │   │   ├── __init__.py              # Stress test package
 │   │   ├── mock_upstream.py         # FastAPI mock OpenAI API (configurable latency/errors/toxic/PII)
@@ -375,9 +377,9 @@ Red team tests: python3 -m pytest tests/test_red_team.py -v --tb=short
 Red team regression tests: python3 -m pytest tests/test_red_team_regression.py -v --tb=short
 APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/parent:/path/to/aegis)
 
-## Current Metrics (as of 2026-03-13)
+## Current Metrics (as of 2026-03-17)
 
-- Tests: 2265 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
+- Tests: 2330 passing, 0 failed, 5 skipped (stress tests require AEGIS_STRESS_FULL=1)
 - Distillation defense: 50 tests (5 strategies + reasoning sanitizer + integration)
 - Multimodal audio security: 55 tests (Phase 3)
 - Adaptive meta-learner: 95 tests (63 adaptive + 32 hardening regression) (Phase 6)
@@ -386,7 +388,7 @@ APT campaigns: python3 -m red_team.run_red_team (requires PYTHONPATH=/path/to/pa
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
 - FPR: 0.00% (0/500) — with DeBERTa loaded
-- Pattern library: 182 patterns (+ 12 paraphrase evasion + dynamic patterns from clonal selection at runtime)
+- Pattern library: 182 patterns + 54 multi-language patterns (+ dynamic patterns from clonal selection at runtime)
 - Threat model: 23 threats (T1-T23), pen test recommendations in docs/
 - Live demo: All 6 scenarios working with Ollama (llama3.2:3b), DeBERTa loads in ~30s
 
@@ -923,7 +925,25 @@ Support modules: `mock_upstream.py` (configurable FastAPI mock LLM), `load_gener
 | PostgreSQL | Persistent audit, dual-write vault, tenant DB lookups | Deque buffer (10k), FAISS-only vault, cached/None tenants | Flush buffer on reconnect |
 | FAISS | HNSW sub-ms ANN search | Brute-force numpy cosine similarity | Index rebuilt on next add() |
 | Circuit Breaker | CLOSED, all requests to primary | OPEN → fallback routing, HALF_OPEN → probe requests | Auto-recovery via probe success |
-| TLI | GREEN, standard thresholds | BLUE-ORANGE: progressively lower thresholds. RED: fail-closed block all | Manual de-escalation or auto-decay |
+| TLI | GREEN, standard thresholds | BLUE-ORANGE: progressively lower thresholds. RED: fail-closed block all | Auto-decay or manual de-escalation |
+
+## Production Hardening (2026-03-17)
+
+Seven fixes applied before production deployment:
+
+1. **Cross-modal text concatenation** (`cross_modal_engine.py` Check 5): Concatenates text extracted from all modalities (image OCR + document text + audio transcription), re-scans through L2 regex to catch fragmentation attacks where injection is split across modalities. Only triggers when 2+ modalities contribute text AND individual scans missed it.
+
+2. **Timing side-channel fix** (`main.py`, `barrier.py`): Replaced `==` with `hmac.compare_digest()` for API key comparison in `_is_authenticated()` and barrier `process()`. Prevents byte-by-byte timing attacks.
+
+3. **Per-tenant TLI** (`layers/policy/__init__.py`): TLI changed from single global value to `dict[str, ThreatLevel]` keyed by tenant_id. Global stored under `"__global__"`. Methods `get_threat_level(tenant_id)`, `set_threat_level(level, tenant_id)`, `escalate_threat_level(tenant_id)`, `de_escalate_threat_level(tenant_id)`. Backward-compatible `threat_level` property delegates to global.
+
+4. **Alpha channel steganalysis** (`layers/multimodal/steganalysis.py`): `analyze_alpha_channel()` method on `Steganalyzer` — chi-square LSB test on alpha channel + ASCII decode of LSBs. `SteganalysisResult` extended with `alpha_channel_suspicious`, `alpha_channel_score`, `alpha_hidden_text` fields. Integrated into `analyze()`.
+
+5. **Multi-language injection detection** (`layers/innate/multilang_detector.py`): Scanner 8 in L2 innate pipeline. 54 regex patterns across 10 languages (Spanish, French, German, Portuguese, Italian, Russian, Chinese, Japanese, Korean, Arabic). Confidence 0.90 — language-specific attacks are deliberate. Integrated into `InnateDetectionLayer.scan()`.
+
+6. **Expanded OCR layout** (`layers/multimodal/ocr_engine.py`): `_preprocess_for_ocr()` pipeline: scale normalization (target ~1000px), contrast enhancement (histogram stretching for low-contrast images), rotation correction (edge-based skew detection, 1-15 degree correction). Falls back to original image on failure.
+
+7. **TLI auto-decay** (`layers/policy/__init__.py`): Automatic de-escalation timers per threat level: RED→ORANGE 300s, ORANGE→YELLOW 180s, YELLOW→BLUE 120s, BLUE→GREEN 60s. Checked lazily on `get_threat_level()`. Configurable via `AEGIS_TLI_AUTO_DECAY_ENABLED` env var (default: true).
 
 ---
 **Extended documentation (red team, multimodal, battle testing) is in CLAUDE_EXTENDED.md. Read it when working on red team, multimodal, adversarial ML, or infrastructure security tasks.**
