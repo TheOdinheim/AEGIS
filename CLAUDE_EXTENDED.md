@@ -507,7 +507,7 @@ Run against live AEGIS with distillation defense module and multimodal message f
 | PRISM (C13) | 25 | 23 | **92.0%** | 84.0% | +8.0% |
 | DEEP COVER (C14) | 20 | 20 | **100.0%** | 100.0% | — |
 | WHISPER (C15) | 12 | 12 | **100.0%** | 100.0% | — |
-| CHIMERA (C16) | 20 | 13 | **65.0%** | 65.0% | — |
+| CHIMERA (C16) | 20 | 19 | **95.0%** | 65.0% | +30.0% |
 | PUPPET MASTER (C17) | 12 | 12 | **100.0%** | 100.0% | — |
 | ADAPTATION (C18) | 20 | 20 | **100.0%** | 100.0% | — |
 | TOTAL WAR (C19) | 199 | 175 | **91.0%** | 91.0% | — |
@@ -521,9 +521,9 @@ Run against live AEGIS with distillation defense module and multimodal message f
 | image | 70 | 68 | 97.1% |
 | text | 80 | 72 | 90.0% |
 | document | 50 | 42 | 84.0% |
-| cross_modal | 40 | 25 | 62.5% |
+| cross_modal | 40 | 30 | 75.0% |
 
-**Overall grade: ADEQUATE** (89.3% overall detection rate). Per-campaign FPR: 0.0% across all individual campaigns. TOTAL WAR FPR (85.5%) is expected TLI escalation behavior during active attack campaigns.
+**Overall grade: STRONG** (90.8% overall detection rate, up from 89.3% after CHIMERA hardening). Per-campaign FPR: 0.0% across all individual campaigns. TOTAL WAR FPR (85.5%) is expected TLI escalation behavior during active attack campaigns.
 
 **Reports**: `red_team/data/multimodal_apt_results_final.json`, `red_team/data/MULTIMODAL_APT_FINAL_ASSESSMENT.md`
 

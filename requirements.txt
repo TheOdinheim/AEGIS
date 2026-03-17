@@ -30,5 +30,8 @@ prometheus-client==0.21.*
 # --- Config ---
 python-dotenv==1.0.*
 
+# --- OCR ---
+pytesseract>=0.3.10
+
 # --- Numerics ---
 numpy==2.2.*

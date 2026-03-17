@@ -397,6 +397,33 @@ class MultimodalPreprocessor:
             results.append(result)
         return results
 
+    def extract_document_text(self, messages: list[dict]) -> str:
+        """Extract visible text from all documents in messages.
+
+        Uses the DocumentTextExtractor to parse document bytes and return
+        concatenated visible text for L2/L3 scanning.
+        """
+        if not self._document_scanning_enabled or not self._doc_scanner:
+            return ""
+
+        documents = self._extract_documents(messages)
+        if not documents:
+            return ""
+
+        text_parts: list[str] = []
+        for doc_bytes, filename, content_type in documents:
+            try:
+                extraction = self._doc_scanner._text_extractor.extract(
+                    doc_bytes, filename, content_type,
+                )
+                if extraction.visible_text:
+                    text_parts.append(extraction.visible_text)
+                if extraction.hidden_text:
+                    text_parts.append(extraction.hidden_text)
+            except Exception as e:
+                logger.warning("Document text extraction failed: %s", e)
+        return " ".join(text_parts)
+
     def _extract_images(self, messages: list[dict]) -> list[bytes]:
         """Extract base64-encoded image data from OpenAI multimodal messages."""
         images: list[bytes] = []

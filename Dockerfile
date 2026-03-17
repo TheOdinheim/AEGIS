@@ -21,10 +21,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # System dependencies for building C extensions (numpy, faiss, onnxruntime)
+# and Tesseract OCR with CJK + multilingual language packs for image text extraction
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         libgomp1 \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-chi-tra \
+        tesseract-ocr-jpn \
+        tesseract-ocr-kor \
+        tesseract-ocr-ara \
+        tesseract-ocr-hin \
+        tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -65,10 +74,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Runtime-only system dependencies (no build-essential)
+# Tesseract OCR + language packs must be in runtime image (binary executed at request time)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         libgomp1 \
         curl \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-chi-tra \
+        tesseract-ocr-jpn \
+        tesseract-ocr-kor \
+        tesseract-ocr-ara \
+        tesseract-ocr-hin \
+        tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

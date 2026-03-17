@@ -12,3 +12,6 @@ psycopg2-binary>=2.9,<3
 # --- ORM / migrations ---
 sqlalchemy[asyncio]>=2.0,<3
 alembic>=1.14,<2
+
+# --- OCR (Tesseract Python binding — binary installed via apt in Dockerfile) ---
+pytesseract>=0.3.10

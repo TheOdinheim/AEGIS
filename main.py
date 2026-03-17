@@ -112,6 +112,11 @@ from aegis.middleware.metrics import (
     MULTIMODAL_OCR_TEXT_EXTRACTED,
     MULTIMODAL_IMAGE_THREATS,
     MULTIMODAL_SCAN_LATENCY,
+    MULTIMODAL_DOCUMENTS_SCANNED,
+    MULTIMODAL_DOCUMENT_THREATS,
+    MULTIMODAL_HIDDEN_CONTENT_DETECTED,
+    MULTIMODAL_AUDIO_SCANNED,
+    MULTIMODAL_AUDIO_THREATS,
     DISTILLATION_SIGNALS,
     DISTILLATION_ALERTS,
     DISTILLATION_BLOCKS,
@@ -127,6 +132,7 @@ from aegis.middleware.request_enrichment import (
     parse_request_body,
 )
 from aegis.layers.multimodal import MultimodalPreprocessor
+from aegis.layers.multimodal.cross_modal_engine import CrossModalCorrelationEngine
 from aegis.layers.adaptive.distillation_defense import DistillationDefenseAnalyzer
 from aegis.layers.adaptive.distillation_models import InteractionRecord
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
@@ -164,6 +170,7 @@ _deep_health: DeepHealthMonitor | None = None
 _config_validation: ConfigValidationResult | None = None
 _vault_backup: VaultBackupManager | None = None
 _multimodal: MultimodalPreprocessor | None = None
+_cross_modal: CrossModalCorrelationEngine | None = None
 _distillation: DistillationDefenseAnalyzer | None = None
 _reasoning_sanitizer: ReasoningTraceSanitizer | None = None
 
@@ -177,7 +184,7 @@ def _init_layers(
     """Initialize all layers. Called during app startup."""
     global _barrier, _innate, _adaptive, _output, _policy, _healing, _vault, _config, _http_client, _audit, _threat_intel
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
-    global _distillation, _reasoning_sanitizer
+    global _distillation, _reasoning_sanitizer, _cross_modal
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -350,7 +357,23 @@ def _init_layers(
         ocr_enabled=_config.multimodal.ocr_enabled,
         steg_enabled=_config.multimodal.steg_enabled,
         max_images_per_request=_config.multimodal.max_images_per_request,
+        document_scanning_enabled=_config.multimodal.document_scanning_enabled,
+        document_max_size_mb=_config.multimodal.document_max_size_mb,
+        document_block_macros=_config.multimodal.document_block_macros,
+        document_block_scripts=_config.multimodal.document_block_scripts,
+        audio_scanning_enabled=_config.multimodal.audio_scanning_enabled,
+        audio_max_size_mb=_config.multimodal.audio_max_size_mb,
+        audio_max_duration_seconds=_config.multimodal.audio_max_duration_seconds,
+        regex_engine=_innate.regex_engine if _innate else None,
     )
+
+    # Cross-modal correlation engine
+    if _config.multimodal.cross_modal_enabled:
+        _cross_modal = CrossModalCorrelationEngine(
+            regex_engine=_innate.regex_engine if _innate else None,
+        )
+    else:
+        _cross_modal = None
 
     # Distillation defense (config-gated)
     if _config.distillation_defense_enabled:
@@ -1698,21 +1721,35 @@ async def _process_request(request: Request, request_id: str) -> Response:
         )
 
     # --- Multimodal preprocessing (config-gated) ---
-    # Extract text from images and add to context for L2/L3 scanning
+    # Extract text from images, documents, audio and add to context for L2/L3 scanning
+    mm_image_text = ""
+    mm_document_text = ""
+    mm_audio_text = ""
+    mm_image_scans: list = []
+    mm_document_scans: list = []
+    mm_audio_scans: list = []
+    mm_image_count = 0
+    mm_document_count = 0
+    mm_audio_count = 0
+
     if _multimodal and _multimodal.enabled:
         mm_start = time.perf_counter()
-        mm_report = _multimodal.preprocess_messages(body.get("messages", []))
+        raw_messages = body.get("messages", [])
+        mm_report = _multimodal.preprocess_messages(raw_messages)
         mm_elapsed = time.perf_counter() - mm_start
         MULTIMODAL_SCAN_LATENCY.observe(mm_elapsed)
+
+        mm_image_count = mm_report.images_found
+        mm_image_scans = list(mm_report.scan_results)
+
+        from aegis.models.request_context import ChatMessage
 
         if mm_report.has_images:
             MULTIMODAL_IMAGES_SCANNED.inc(mm_report.images_scanned)
             if mm_report.extracted_text:
                 MULTIMODAL_OCR_TEXT_EXTRACTED.inc()
-                # Append extracted image text to context for L2/L3 scanning
+                mm_image_text = mm_report.extracted_text
                 context.metadata["multimodal_extracted_text"] = mm_report.extracted_text
-                # Add as a synthetic message so prompt_text includes it
-                from aegis.models.request_context import ChatMessage
                 context.messages.append(ChatMessage(
                     role="user",
                     content=f"[AEGIS_IMAGE_TEXT_EXTRACTION]\n{mm_report.extracted_text}",
@@ -1723,7 +1760,78 @@ async def _process_request(request: Request, request_id: str) -> Response:
             if mm_report.should_block:
                 BLOCKS_TOTAL.labels(layer="multimodal", reason="image_threat").inc()
                 return _block_response(request_id, "Request blocked by AEGIS multimodal image scanning.")
-        LAYER_LATENCY.labels(layer="multimodal").observe(mm_elapsed)
+
+        # --- Document scanning (async) ---
+        if _multimodal.document_scanning_enabled:
+            doc_scans = await _multimodal.scan_documents(raw_messages)
+            mm_document_count = mm_report.documents_found
+            mm_document_scans = doc_scans
+            if doc_scans:
+                MULTIMODAL_DOCUMENTS_SCANNED.inc(len(doc_scans))
+                for sr in doc_scans:
+                    if sr.is_threat:
+                        MULTIMODAL_DOCUMENT_THREATS.labels(threat_type=sr.threat_category.value).inc()
+                doc_should_block = any(
+                    sr.is_threat and sr.confidence >= 0.85 for sr in doc_scans
+                )
+                if doc_should_block:
+                    BLOCKS_TOTAL.labels(layer="multimodal", reason="document_threat").inc()
+                    return _block_response(request_id, "Request blocked by AEGIS document scanning.")
+            # Extract document text for L2/L3 scanning
+            mm_document_text = _multimodal.extract_document_text(raw_messages)
+            if mm_document_text.strip():
+                context.metadata["multimodal_document_text"] = mm_document_text.strip()
+                context.messages.append(ChatMessage(
+                    role="user",
+                    content=f"[AEGIS_DOCUMENT_TEXT_EXTRACTION]\n{mm_document_text.strip()}",
+                ))
+
+        # --- Audio scanning (async) ---
+        if _multimodal.audio_scanning_enabled:
+            audio_scans = await _multimodal.scan_audio(raw_messages)
+            mm_audio_count = mm_report.audio_found
+            mm_audio_scans = audio_scans
+            if audio_scans:
+                MULTIMODAL_AUDIO_SCANNED.inc(len(audio_scans))
+                for sr in audio_scans:
+                    if sr.is_threat:
+                        MULTIMODAL_AUDIO_THREATS.labels(threat_type=sr.threat_category.value).inc()
+                audio_should_block = any(
+                    sr.is_threat and sr.confidence >= 0.85 for sr in audio_scans
+                )
+                if audio_should_block:
+                    BLOCKS_TOTAL.labels(layer="multimodal", reason="audio_threat").inc()
+                    return _block_response(request_id, "Request blocked by AEGIS audio scanning.")
+
+        LAYER_LATENCY.labels(layer="multimodal").observe(
+            time.perf_counter() - mm_start
+        )
+
+    # --- Cross-modal correlation (config-gated) ---
+    if _cross_modal and (mm_image_count + mm_document_count + mm_audio_count) > 0:
+        xm_start = time.perf_counter()
+        # Build text_scan from the innate text (will be None here, pre-L2)
+        xm_report = await _cross_modal.correlate(
+            text_content=context.prompt_text,
+            text_scan=None,  # L2 hasn't run yet; cross-modal uses its own checks
+            image_scans=mm_image_scans,
+            document_scans=mm_document_scans,
+            audio_scans=mm_audio_scans,
+            extracted_text=(mm_image_text + " " + mm_document_text + " " + mm_audio_text).strip(),
+            session_id=context.session_id,
+            image_count=mm_image_count,
+            document_count=mm_document_count,
+            audio_count=mm_audio_count,
+            image_text=mm_image_text,
+            document_text=mm_document_text,
+            audio_text=mm_audio_text,
+        )
+        LAYER_LATENCY.labels(layer="cross_modal").observe(
+            time.perf_counter() - xm_start
+        )
+        if xm_report.should_block:
+            BLOCKS_TOTAL.labels(layer="multimodal", reason="cross_modal_threat").inc()
+            return _block_response(request_id, "Request blocked by AEGIS cross-modal correlation.")
 
     # --- L2 Innate (sync, <5ms) ---
     with_latency = time.perf_counter()

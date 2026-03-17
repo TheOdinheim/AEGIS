@@ -6,11 +6,13 @@ is processed in a shared semantic space. An image containing injection text
 combined with a benign text prompt creates a compound attack that neither
 image-only nor text-only scanners catch individually.
 
-Four correlation checks:
+Six correlation checks:
 1. Modality laundering — injection hidden in non-text modalities while text is clean
 2. Semantic inconsistency — mismatched topics between text and extracted multimodal text
 3. Progressive cross-modal escalation — session escalates from text to multimodal with rising threat
 4. Volume anomaly — excessive attachments designed to overwhelm per-item scanning
+5. Fragmentation attack — injection split across modalities, caught by concat re-scan
+6. Ignore-modality decoy — text says "ignore the image/audio/document" while that modality is present
 
 ASSUMED-BREACH POSTURE: Each individual modality scanner may miss an attack.
 The correlation engine provides defense-in-depth by examining relationships
@@ -20,6 +22,7 @@ between modality scan results that no single scanner can observe.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -40,6 +43,27 @@ _MAX_IMAGES_PER_REQUEST = 5
 _MAX_DOCUMENTS_PER_REQUEST = 3
 _MAX_AUDIO_PER_REQUEST = 2
 
+# Decoy detection: text tells model to ignore a modality that is actually present
+_DECOY_PATTERN = re.compile(
+    r"(?:ignore|don'?t\s+look\s+at|disregard|skip)\s+the\s+"
+    r"(audio|image|document|file|attachment|photo|picture|recording|pdf|video)",
+    re.IGNORECASE,
+)
+
+# Map matched decoy words to canonical modality names
+_DECOY_MODALITY_MAP: dict[str, str] = {
+    "audio": "audio",
+    "recording": "audio",
+    "image": "image",
+    "photo": "image",
+    "picture": "image",
+    "video": "image",
+    "document": "document",
+    "file": "document",
+    "attachment": "document",
+    "pdf": "document",
+}
+
 
 @dataclass
 class CrossModalReport:
@@ -50,6 +74,7 @@ class CrossModalReport:
     cross_modal_escalation: bool = False
     volume_anomaly: bool = False
     fragmentation_attack_detected: bool = False
+    decoy_detected: bool = False
     combined_threat_score: float = 0.0
     details: dict[str, Any] = field(default_factory=dict)
     scan_results: list[ScanResult] = field(default_factory=list)
@@ -270,7 +295,7 @@ class CrossModalCorrelationEngine:
             results.append(ScanResult(
                 scanner_id="cross_modal_volume",
                 is_threat=True,
-                confidence=0.70,
+                confidence=0.85,
                 threat_category=ThreatCategory.TOKEN_ANOMALY,
                 matched_patterns=[f"volume_anomaly: {', '.join(volume_issues)}"],
                 latency_ms=0.0,
@@ -314,6 +339,34 @@ class CrossModalCorrelationEngine:
                             ))
                 except Exception as e:
                     logger.warning("Cross-modal concat re-scan failed: %s", e)
+
+        # Check 6: Ignore-modality decoy detection
+        # Users don't normally attach content and tell the model to ignore it.
+        # This pattern is used to direct attention away from adversarial payloads
+        # hidden in the "ignored" modality.
+        if text_content:
+            modality_counts = {
+                "audio": audio_count,
+                "image": image_count,
+                "document": document_count,
+            }
+            for match in _DECOY_PATTERN.finditer(text_content):
+                matched_word = match.group(1).lower()
+                canonical = _DECOY_MODALITY_MAP.get(matched_word)
+                if canonical and modality_counts.get(canonical, 0) > 0:
+                    report.decoy_detected = True
+                    report.details["decoy_modality"] = canonical
+                    results.append(ScanResult(
+                        scanner_id="cross_modal_decoy",
+                        is_threat=True,
+                        confidence=0.85,
+                        threat_category=ThreatCategory.PROMPT_INJECTION,
+                        matched_patterns=[
+                            f"ignore_modality_decoy: text says ignore {canonical} while {canonical} is present"
+                        ],
+                        latency_ms=0.0,
+                    ))
+                    break  # One decoy detection is sufficient
 
         # Compute combined threat score
         all_confidences = [r.confidence for r in results if r.is_threat]
