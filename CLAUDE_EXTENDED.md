@@ -1,6 +1,6 @@
 # AEGIS Extended Documentation — Red Team, Multimodal, Battle Testing
 
-**This file extends CLAUDE.md. Read CLAUDE.md first for core architecture.**
+**For core architecture, see CLAUDE.md. For operational history, see CLAUDE_OPS.md.**
 
 ---
 
