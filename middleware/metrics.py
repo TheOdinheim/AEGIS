@@ -434,6 +434,25 @@ TOOL_PROXY_LATENCY = Histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Inter-Agent Communication Monitor (IACM)
+# ---------------------------------------------------------------------------
+
+INTERAGENT_MESSAGES_SCANNED = Counter(
+    "aegis_interagent_messages_scanned_total",
+    "Total inter-agent messages scanned",
+)
+
+INTERAGENT_INJECTION_DETECTED = Counter(
+    "aegis_interagent_injection_detected_total",
+    "Injection detected in inter-agent messages",
+)
+
+COMPROMISED_AGENTS_DETECTED = Counter(
+    "aegis_compromised_agents_detected_total",
+    "Agents flagged as compromised",
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 

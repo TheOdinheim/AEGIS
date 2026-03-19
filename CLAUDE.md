@@ -61,7 +61,10 @@ aegis/
 │   ├── tool_proxy/
 │   │   ├── __init__.py              # Tool Invocation Proxy (TIP) package exports
 │   │   ├── proxy.py                 # TIP: intercept agent-to-tool calls, MCP proxy, invocation logging
-│   │   └── policy_engine.py         # TIPE: allowlist, rate limit, param validation (path/SSRF/injection)
+│   │   ├── policy_engine.py         # TIPE: allowlist, rate limit, param validation (path/SSRF/injection)
+│   │   ├── description_validator.py # TDIV: tool description injection scanning, quarantine set
+│   │   ├── response_sanitizer.py    # TRS: tool output injection scanning, content delimiting, size enforcement
+│   │   └── chain_detector.py        # TCAD: parasitic toolchain detection (dangerous sequences, volume, ordering)
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   ├── signatures.py           # Clonal selection generator + SignatureStore
@@ -112,7 +115,8 @@ aegis/
 │       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
 │       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
 │       ├── authorization.py         # AgentAuthorizationEngine: least-privilege, scope, escalation blocking
-│       └── message_validator.py     # AgentMessageValidator: injection scanning, quarantine
+│       ├── message_validator.py     # AgentMessageValidator: injection scanning, quarantine
+│       └── communication_monitor.py # IACM: inter-agent lateral movement detection, compromised agent flagging
 ├── services/
 │   ├── __init__.py
 │   ├── redis_client.py              # Async Redis singleton, health check, graceful degradation
@@ -137,7 +141,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2517+ tests across 40+ test files
+├── tests/                           # 2574+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -200,6 +204,8 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | POST /v1/admin/restore | Yes | Restore vault from backup |
 | GET /v1/taxonomy/stats | Yes | Jailbreak taxonomy statistics |
 | GET /v1/tool-proxy/stats | Yes | Tool proxy invocation and violation stats |
+| POST /v1/tool-proxy/validate-description | Yes | TDIV: validate tool description for injection |
+| GET /v1/agents/communication/stats | Yes | IACM: inter-agent communication monitor stats |
 | GET /v1/admin/deep-health | Yes | Deep health check (6 components) |
 
 ## Running Tests
@@ -212,7 +218,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2517 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2574 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -257,6 +263,18 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_TOOL_PROXY_MAX_INVOCATION_LOG — max invocation log entries (default: 10000)
 - AEGIS_TOOL_PROXY_BLOCK_INTERNAL_URLS — block internal/private IP URLs (default: true)
 - AEGIS_TOOL_PROXY_REQUIRE_HTTPS — require HTTPS for URL params (default: false)
+- AEGIS_TDIV_ENABLED — enable Tool Description Integrity Validator (default: true)
+- AEGIS_TDIV_MAX_DESCRIPTION_LENGTH — max tool description field length (default: 2000)
+- AEGIS_TRS_ENABLED — enable Tool Response Sanitizer (default: true)
+- AEGIS_TRS_DEFAULT_MAX_OUTPUT_SIZE — max tool output size in bytes (default: 102400)
+- AEGIS_TRS_BLOCK_THRESHOLD — injection confidence for blocking tool output (default: 0.85)
+- AEGIS_TCAD_ENABLED — enable Tool Chain Anomaly Detector (default: true)
+- AEGIS_TCAD_WINDOW_SIZE — per-session tool chain window size (default: 20)
+- AEGIS_TCAD_VOLUME_MULTIPLIER — volume anomaly threshold multiplier (default: 3.0)
+- AEGIS_TCAD_BASELINE_SESSIONS — sessions before unusual ordering detection activates (default: 100)
+- AEGIS_IACM_ENABLED — enable Inter-Agent Communication Monitor (default: true)
+- AEGIS_IACM_TRUST_THRESHOLD — sender trust level for elevated scrutiny (default: 0.3)
+- AEGIS_IACM_INJECTION_RATE_THRESHOLD — injection rate for compromised agent flagging (default: 0.5)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -294,7 +312,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2517+
+3. All tests must pass before any changes are considered complete — current baseline is 2574+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token
@@ -302,6 +320,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 8. Audit log flush — f.flush() after every JSONL write to prevent corruption on crash
 9. No time.sleep() in tests — use timestamp backdating for expiry/cooldown simulation
 10. Existing test files and test counts must not decrease — only add, never remove tests
+11. CLAUDE.md must stay under 500 lines. When it grows past 500, split operational/narrative content to CLAUDE_OPS.md.
 
 ---
 **For red team results and multimodal APT campaigns, see CLAUDE_EXTENDED.md. For bug fixes, hardening history, and operational changes, see CLAUDE_OPS.md.**

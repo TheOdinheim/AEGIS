@@ -29,6 +29,21 @@ from aegis.layers.tool_proxy.policy_engine import (
     ToolPolicy,
     ToolScope,
 )
+from aegis.layers.tool_proxy.description_validator import (
+    DescriptionVerdict,
+    ToolDescriptionIntegrityValidator,
+    ToolDescriptionScan,
+)
+from aegis.layers.tool_proxy.response_sanitizer import (
+    ToolResponseSanitizer,
+    ToolResponseScan,
+)
+from aegis.layers.tool_proxy.chain_detector import (
+    ChainAlert,
+    ChainAlertType,
+    ChainReport,
+    ToolChainAnomalyDetector,
+)
 
 __all__ = [
     "ToolInvocation",
@@ -39,4 +54,13 @@ __all__ = [
     "ToolInvocationPolicyEngine",
     "ToolPolicy",
     "ToolScope",
+    "DescriptionVerdict",
+    "ToolDescriptionIntegrityValidator",
+    "ToolDescriptionScan",
+    "ToolResponseSanitizer",
+    "ToolResponseScan",
+    "ChainAlert",
+    "ChainAlertType",
+    "ChainReport",
+    "ToolChainAnomalyDetector",
 ]

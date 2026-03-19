@@ -133,6 +133,9 @@ from aegis.middleware.metrics import (
     TOOL_INVOCATIONS_TOTAL,
     TOOL_POLICY_VIOLATIONS_TOTAL,
     TOOL_PROXY_LATENCY,
+    INTERAGENT_MESSAGES_SCANNED,
+    INTERAGENT_INJECTION_DETECTED,
+    COMPROMISED_AGENTS_DETECTED,
     get_metrics_text,
     track_latency,
 )
@@ -153,7 +156,11 @@ from aegis.layers.memory.jailbreak_taxonomy import JailbreakTaxonomyLogger, Jail
 from aegis.layers.tool_proxy import (
     ToolInvocationProxy,
     ToolInvocationPolicyEngine,
+    ToolDescriptionIntegrityValidator,
+    ToolResponseSanitizer,
+    ToolChainAnomalyDetector,
 )
+from aegis.layers.agent_security.communication_monitor import InterAgentCommunicationMonitor
 from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.models.policy_decision import PolicyAction
@@ -199,6 +206,10 @@ _adaptive_rate_limiter: AdaptiveRateLimiter | None = None
 _jailbreak_taxonomy: JailbreakTaxonomyLogger | None = None
 _tool_proxy: ToolInvocationProxy | None = None
 _tool_policy_engine: ToolInvocationPolicyEngine | None = None
+_tdiv: ToolDescriptionIntegrityValidator | None = None
+_trs: ToolResponseSanitizer | None = None
+_tcad: ToolChainAnomalyDetector | None = None
+_iacm: InterAgentCommunicationMonitor | None = None
 
 
 def _init_layers(
@@ -212,7 +223,7 @@ def _init_layers(
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
     global _distillation, _reasoning_sanitizer, _cross_modal, _manipulation_detector, _source_profiler
     global _adaptive_rate_limiter, _jailbreak_taxonomy
-    global _tool_proxy, _tool_policy_engine
+    global _tool_proxy, _tool_policy_engine, _tdiv, _trs, _tcad, _iacm
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -473,6 +484,46 @@ def _init_layers(
         _tool_proxy = None
         _tool_policy_engine = None
 
+    # TDIV — Extension 4.3
+    if _config.tdiv_enabled:
+        _tdiv = ToolDescriptionIntegrityValidator(
+            regex_engine=_innate.regex_engine if _innate else None,
+            max_description_length=_config.tdiv_max_description_length,
+        )
+    else:
+        _tdiv = None
+
+    # TRS — Extension 4.4
+    if _config.trs_enabled:
+        _trs = ToolResponseSanitizer(
+            regex_engine=_innate.regex_engine if _innate else None,
+            default_max_output_size=_config.trs_default_max_output_size,
+            block_threshold=_config.trs_block_threshold,
+        )
+    else:
+        _trs = None
+
+    # TCAD — Extension 4.5
+    if _config.tcad_enabled:
+        _tcad = ToolChainAnomalyDetector(
+            window_size=_config.tcad_window_size,
+            volume_multiplier=_config.tcad_volume_multiplier,
+            baseline_sessions=_config.tcad_baseline_sessions,
+        )
+    else:
+        _tcad = None
+
+    # IACM — Extension 5.3
+    if _config.iacm_enabled:
+        _iacm = InterAgentCommunicationMonitor(
+            regex_engine=_innate.regex_engine if _innate else None,
+            identity_manager=_agent_security.identity_manager if _agent_security else None,
+            trust_threshold=_config.iacm_trust_threshold,
+            injection_rate_threshold=_config.iacm_injection_rate_threshold,
+        )
+    else:
+        _iacm = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -546,9 +597,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _wire_event_bus_subscriptions()
     await _event_bus.start()
 
-    # Wire event bus to tool proxy (created in _init_layers before event bus)
+    # Wire event bus to components created before event bus in _init_layers
     if _tool_proxy:
         _tool_proxy._event_bus = _event_bus
+    if _tdiv:
+        _tdiv._event_bus = _event_bus
+    if _iacm:
+        _iacm._event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -934,6 +989,72 @@ async def tool_proxy_stats(request: Request) -> Response:
             "total_invocations": 0,
         })
     return JSONResponse(content=_tool_proxy.get_stats())
+
+
+@app.post("/v1/tool-proxy/validate-description")
+async def tool_proxy_validate_description(request: Request) -> Response:
+    """Validate a tool description for injection before registration.
+
+    Accepts JSON body with tool_name and description (dict with fields like
+    'name', 'description', 'parameters'). Returns TDIV scan result.
+    Requires authentication.
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if not _tdiv:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Tool description validator not enabled"},
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid JSON body"},
+        )
+    tool_name = body.get("tool_name", "unknown")
+    schema = body.get("schema", {})
+    description = body.get("description", "")
+    if not isinstance(schema, dict):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "schema must be a JSON object"},
+        )
+    scan = await _tdiv.validate(tool_name, schema, description=description)
+    return JSONResponse(content={
+        "tool_name": scan.tool_name,
+        "verdict": scan.verdict.value,
+        "injection_detected": scan.injection_detected,
+        "structural_anomalies": scan.structural_anomalies,
+        "pattern_matches": scan.pattern_matches,
+        "semantic_similarity_score": scan.semantic_similarity_score,
+        "scanned_text_length": scan.scanned_text_length,
+        "scan_latency_ms": round(scan.scan_latency_ms, 2),
+    })
+
+
+@app.get("/v1/agents/communication/stats")
+async def agent_communication_stats(request: Request) -> Response:
+    """Inter-Agent Communication Monitor statistics.
+
+    Returns scan counts, injection counts, compromised agent list.
+    Requires authentication.
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if not _iacm:
+        return JSONResponse(content={
+            "error": "Inter-agent communication monitor not enabled",
+            "total_scanned": 0,
+        })
+    return JSONResponse(content=_iacm.get_stats())
 
 
 # ---------------------------------------------------------------------------

@@ -824,6 +824,73 @@ class AegisConfig(BaseSettings):
         description="Require HTTPS for all URL parameters",
     )
 
+    # --- Tool Description Integrity Validator (TDIV) ---
+    tdiv_enabled: bool = Field(
+        default=True,
+        description="Enable Tool Description Integrity Validator",
+    )
+    tdiv_max_description_length: int = Field(
+        default=2000,
+        ge=100,
+        description="Max single field length before flagging as suspicious",
+    )
+
+    # --- Tool Response Sanitizer (TRS) ---
+    trs_enabled: bool = Field(
+        default=True,
+        description="Enable Tool Response Sanitizer",
+    )
+    trs_default_max_output_size: int = Field(
+        default=102400,
+        ge=1024,
+        description="Default max tool output size in bytes (100KB)",
+    )
+    trs_block_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Injection score threshold for blocking tool responses",
+    )
+
+    # --- Tool Chain Anomaly Detector (TCAD) ---
+    tcad_enabled: bool = Field(
+        default=True,
+        description="Enable Tool Chain Anomaly Detector",
+    )
+    tcad_window_size: int = Field(
+        default=20,
+        ge=5,
+        description="Per-session tool invocation sliding window size",
+    )
+    tcad_volume_multiplier: float = Field(
+        default=3.0,
+        ge=1.5,
+        description="Volume anomaly threshold multiplier over baseline",
+    )
+    tcad_baseline_sessions: int = Field(
+        default=100,
+        ge=10,
+        description="Sessions needed before unusual ordering detection activates",
+    )
+
+    # --- Inter-Agent Communication Monitor (IACM) ---
+    iacm_enabled: bool = Field(
+        default=True,
+        description="Enable Inter-Agent Communication Monitor",
+    )
+    iacm_trust_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Sender trust below this triggers elevated scrutiny",
+    )
+    iacm_injection_rate_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Injection rate above this flags sender as compromised",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
