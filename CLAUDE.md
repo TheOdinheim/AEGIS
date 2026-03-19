@@ -58,6 +58,10 @@ aegis/
 │   │   ├── manipulation_detector.py # MTMD: 5-strategy autonomous jailbreak agent detection
 │   │   └── source_profiler.py       # Source behavioral profiling: diversity, injection rate, automation
 │   ├── adaptive_rate_limiter.py      # Adaptive per-source rate limiting (slowdown, cooling, hard stop)
+│   ├── tool_proxy/
+│   │   ├── __init__.py              # Tool Invocation Proxy (TIP) package exports
+│   │   ├── proxy.py                 # TIP: intercept agent-to-tool calls, MCP proxy, invocation logging
+│   │   └── policy_engine.py         # TIPE: allowlist, rate limit, param validation (path/SSRF/injection)
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   ├── signatures.py           # Clonal selection generator + SignatureStore
@@ -133,7 +137,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2455+ tests across 40+ test files
+├── tests/                           # 2517+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -169,7 +173,7 @@ Threat vault lifecycle: Acute (0-30 days) → Persistent (3+ sources or confirme
 
 Circuit breaker: Closed → Open (on threshold breach) → Half-Open (after cooldown) → Closed (if probes pass). Per-model-endpoint tracking.
 
-Event bus: InMemoryEventBus in tests; RedisEventBus in production. Channels: `threat_detected`, `antibody_generated`, `circuit_breaker`, `policy_escalation`, `audit_event`.
+Event bus: InMemoryEventBus in tests; RedisEventBus in production. Channels: `threat_detected`, `antibody_generated`, `circuit_breaker`, `policy_escalation`, `audit_event`, `tool_violation`.
 
 Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefully to in-memory implementations. AEGIS must NEVER crash because a backing service is down.
 
@@ -195,6 +199,7 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | POST /v1/admin/backup | Yes | Backup vault + signatures |
 | POST /v1/admin/restore | Yes | Restore vault from backup |
 | GET /v1/taxonomy/stats | Yes | Jailbreak taxonomy statistics |
+| GET /v1/tool-proxy/stats | Yes | Tool proxy invocation and violation stats |
 | GET /v1/admin/deep-health | Yes | Deep health check (6 components) |
 
 ## Running Tests
@@ -207,7 +212,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2455 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2517 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -246,6 +251,12 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_ADAPTIVE_RATE_LIMIT_HARD_STOP_DURATION — hard stop duration in seconds (default: 300)
 - AEGIS_JAILBREAK_TAXONOMY_ENABLED — enable jailbreak attempt taxonomy logging (default: true)
 - AEGIS_JAILBREAK_TAXONOMY_MAX_ATTEMPTS — max stored attempts (default: 50000)
+- AEGIS_TOOL_PROXY_ENABLED — enable Tool Invocation Proxy (default: true)
+- AEGIS_TOOL_PROXY_DEFAULT_RPM — default per-tool rate limit (default: 60)
+- AEGIS_TOOL_PROXY_MAX_PARAM_SIZE — max parameter size in bytes (default: 10000)
+- AEGIS_TOOL_PROXY_MAX_INVOCATION_LOG — max invocation log entries (default: 10000)
+- AEGIS_TOOL_PROXY_BLOCK_INTERNAL_URLS — block internal/private IP URLs (default: true)
+- AEGIS_TOOL_PROXY_REQUIRE_HTTPS — require HTTPS for URL params (default: false)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -283,7 +294,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2455+
+3. All tests must pass before any changes are considered complete — current baseline is 2517+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

@@ -417,7 +417,7 @@ class TestInMemoryEventBus:
         assert CHANNEL_CIRCUIT_BREAKER in ALL_CHANNELS
         assert CHANNEL_ANTIBODY_GENERATED in ALL_CHANNELS
         assert CHANNEL_AUDIT_EVENT in ALL_CHANNELS
-        assert len(ALL_CHANNELS) == 5
+        assert len(ALL_CHANNELS) == 6
 
     @pytest.mark.asyncio
     async def test_backend_name(self):
@@ -740,7 +740,7 @@ class TestGracefulDegradation:
         for channel in ALL_CHANNELS:
             await bus.publish(channel, {"channel": channel})
 
-        assert len(events) == 5
+        assert len(events) == len(ALL_CHANNELS)
         await bus.stop()
 
     @pytest.mark.asyncio

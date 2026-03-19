@@ -412,6 +412,28 @@ JAILBREAK_TECHNIQUES_ACTIVE = Gauge(
 )
 
 # ---------------------------------------------------------------------------
+# Tool Invocation Proxy (TIP)
+# ---------------------------------------------------------------------------
+
+TOOL_INVOCATIONS_TOTAL = Counter(
+    "aegis_tool_invocations_total",
+    "Tool invocations by tool name and decision",
+    ["tool_name", "decision"],
+)
+
+TOOL_POLICY_VIOLATIONS_TOTAL = Counter(
+    "aegis_tool_policy_violations_total",
+    "Tool policy violations by type",
+    ["violation_type"],
+)
+
+TOOL_PROXY_LATENCY = Histogram(
+    "aegis_tool_proxy_latency_seconds",
+    "Tool proxy validation latency",
+    buckets=(0.0005, 0.001, 0.002, 0.005, 0.01, 0.025),
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 

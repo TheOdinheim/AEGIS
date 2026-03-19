@@ -139,7 +139,8 @@
       "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1 | tail -3)",
       "Bash(python3 -m pytest tests/test_manipulation_detector.py -x -q --tb=short -p no:warnings 2>&1)",
       "Bash(python3 -m pytest tests/ -x -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1)",
-      "Bash(python3 -m pytest tests/test_adaptive_rate_limiter.py -x -q --tb=short -p no:warnings 2>&1)"
+      "Bash(python3 -m pytest tests/test_adaptive_rate_limiter.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_tool_proxy.py -x -q --tb=short -p no:warnings 2>&1)"
     ]
   }
 }

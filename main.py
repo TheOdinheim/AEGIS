@@ -130,6 +130,9 @@ from aegis.middleware.metrics import (
     ADAPTIVE_RATE_COOLING,
     JAILBREAK_ATTEMPTS,
     JAILBREAK_TECHNIQUES_ACTIVE,
+    TOOL_INVOCATIONS_TOTAL,
+    TOOL_POLICY_VIOLATIONS_TOTAL,
+    TOOL_PROXY_LATENCY,
     get_metrics_text,
     track_latency,
 )
@@ -147,6 +150,10 @@ from aegis.layers.adaptive.manipulation_detector import MultiTurnManipulationDet
 from aegis.layers.adaptive.source_profiler import SourceBehavioralProfiler, ProfileUpdate
 from aegis.layers.adaptive_rate_limiter import AdaptiveRateLimiter
 from aegis.layers.memory.jailbreak_taxonomy import JailbreakTaxonomyLogger, JailbreakTechnique
+from aegis.layers.tool_proxy import (
+    ToolInvocationProxy,
+    ToolInvocationPolicyEngine,
+)
 from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.models.policy_decision import PolicyAction
@@ -190,6 +197,8 @@ _manipulation_detector: MultiTurnManipulationDetector | None = None
 _source_profiler: SourceBehavioralProfiler | None = None
 _adaptive_rate_limiter: AdaptiveRateLimiter | None = None
 _jailbreak_taxonomy: JailbreakTaxonomyLogger | None = None
+_tool_proxy: ToolInvocationProxy | None = None
+_tool_policy_engine: ToolInvocationPolicyEngine | None = None
 
 
 def _init_layers(
@@ -203,6 +212,7 @@ def _init_layers(
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
     global _distillation, _reasoning_sanitizer, _cross_modal, _manipulation_detector, _source_profiler
     global _adaptive_rate_limiter, _jailbreak_taxonomy
+    global _tool_proxy, _tool_policy_engine
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -446,6 +456,23 @@ def _init_layers(
     else:
         _jailbreak_taxonomy = None
 
+    # Tool Invocation Proxy — Extension 4.1/4.2
+    if _config.tool_proxy_enabled:
+        _tool_policy_engine = ToolInvocationPolicyEngine(
+            default_rpm=_config.tool_proxy_default_rpm,
+            max_param_size=_config.tool_proxy_max_param_size,
+            block_internal_urls=_config.tool_proxy_block_internal_urls,
+            require_https=_config.tool_proxy_require_https,
+            regex_engine=_innate.regex_engine if _innate else None,
+        )
+        _tool_proxy = ToolInvocationProxy(
+            policy_engine=_tool_policy_engine,
+            max_invocation_log=_config.tool_proxy_max_invocation_log,
+        )
+    else:
+        _tool_proxy = None
+        _tool_policy_engine = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -518,6 +545,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _event_bus = await create_event_bus(_redis_client)
     await _wire_event_bus_subscriptions()
     await _event_bus.start()
+
+    # Wire event bus to tool proxy (created in _init_layers before event bus)
+    if _tool_proxy:
+        _tool_proxy._event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -883,6 +914,26 @@ async def taxonomy_stats(request: Request) -> Response:
         "trend_window_hours": stats.trend_window_hours,
         "recent_trend": {k.value: v for k, v in stats.recent_trend.items()},
     })
+
+
+@app.get("/v1/tool-proxy/stats")
+async def tool_proxy_stats(request: Request) -> Response:
+    """Tool Invocation Proxy statistics.
+
+    Returns invocation counts, violation counts, and per-tool rate limit status.
+    Requires authentication.
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if not _tool_proxy:
+        return JSONResponse(content={
+            "error": "Tool proxy not enabled",
+            "total_invocations": 0,
+        })
+    return JSONResponse(content=_tool_proxy.get_stats())
 
 
 # ---------------------------------------------------------------------------

@@ -795,6 +795,35 @@ class AegisConfig(BaseSettings):
         description="Maximum taxonomy log entries before FIFO eviction",
     )
 
+    # --- Tool Proxy (TIP/TIPE) ---
+    tool_proxy_enabled: bool = Field(
+        default=True,
+        description="Enable Tool Invocation Proxy for agent-to-tool security",
+    )
+    tool_proxy_default_rpm: int = Field(
+        default=60,
+        ge=1,
+        description="Default per-tool rate limit (RPM per source)",
+    )
+    tool_proxy_max_param_size: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum parameter size in bytes",
+    )
+    tool_proxy_max_invocation_log: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum invocation log entries before FIFO eviction",
+    )
+    tool_proxy_block_internal_urls: bool = Field(
+        default=True,
+        description="Block URLs targeting internal/private IP ranges",
+    )
+    tool_proxy_require_https: bool = Field(
+        default=False,
+        description="Require HTTPS for all URL parameters",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
