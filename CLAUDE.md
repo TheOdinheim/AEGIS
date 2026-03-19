@@ -68,7 +68,7 @@ aegis/
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   ├── signatures.py           # Clonal selection generator + SignatureStore
-│   │   └── jailbreak_taxonomy.py   # 14-category jailbreak attempt classification and trend tracking
+│   │   └── jailbreak_taxonomy.py   # 15-category jailbreak attempt classification and trend tracking
 │   ├── output/
 │   │   ├── __init__.py              # OutputValidationLayer: 5-stage cascade orchestrator
 │   │   ├── pii_redactor.py          # Stage 1: Presidio PII + 8 secret types (AWS, OpenAI, Anthropic, GitHub, etc.)
@@ -77,6 +77,9 @@ aegis/
 │   │   ├── leakage.py               # Stage 4: System prompt echo detection
 │   │   ├── schema_validator.py      # Stage 5: JSON schema validation, injected field detection
 │   │   ├── reasoning_sanitizer.py   # Stage 6: Reasoning trace sanitization (monitor/redact/summarize)
+│   │   ├── coherence_analyzer.py    # Extension 1.2: Sliding-window coherence, pivot detection, CoT hijacking
+│   │   ├── length_anomaly_detector.py # Extension 1.3: EMA baselines, per-(tenant,session), length anomaly
+│   │   ├── alignment_validator.py   # Extension 1.4: Reasoning-output semantic alignment, misalignment detection
 │   │   └── streaming.py             # StreamingInterceptor: hold buffer, PII scrub, cumulative threat
 │   ├── policy/
 │   │   ├── __init__.py              # L6: PolicyEngine, TenantPolicy, TLI (5 levels), score fusion
@@ -141,7 +144,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2574+ tests across 40+ test files
+├── tests/                           # 2628+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -218,7 +221,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2574 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2628 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -275,6 +278,13 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_IACM_ENABLED — enable Inter-Agent Communication Monitor (default: true)
 - AEGIS_IACM_TRUST_THRESHOLD — sender trust level for elevated scrutiny (default: 0.3)
 - AEGIS_IACM_INJECTION_RATE_THRESHOLD — injection rate for compromised agent flagging (default: 0.5)
+- AEGIS_COT_DEFENSE_ENABLED — enable chain-of-thought hijacking defense (default: true)
+- AEGIS_COT_COHERENCE_WINDOW_SIZE — tokens per coherence window (default: 200)
+- AEGIS_COT_COHERENCE_PIVOT_THRESHOLD — coherence drop below this is a pivot (default: 0.3)
+- AEGIS_COT_LENGTH_ANOMALY_MULTIPLIER — baseline multiplier for length anomaly (default: 3.0)
+- AEGIS_COT_LENGTH_ANOMALY_DEFAULT_BASELINE — default trace length baseline (default: 500)
+- AEGIS_COT_ALIGNMENT_MISALIGN_THRESHOLD — alignment below this is MISALIGNED (default: 0.3)
+- AEGIS_COT_DEFENSE_BLOCK_THRESHOLD — combined CoT score for blocking (default: 0.7)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -312,7 +322,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2574+
+3. All tests must pass before any changes are considered complete — current baseline is 2628+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

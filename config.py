@@ -891,6 +891,50 @@ class AegisConfig(BaseSettings):
         description="Injection rate above this flags sender as compromised",
     )
 
+    # --- CoT Defense (Extensions 1.2-1.4) ---
+    cot_defense_enabled: bool = Field(
+        default=True,
+        description="Enable chain-of-thought hijacking defense",
+    )
+    cot_coherence_window_size: int = Field(
+        default=200,
+        ge=50,
+        description="Tokens per coherence analysis window",
+    )
+    cot_coherence_pivot_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Coherence score below this is a pivot",
+    )
+    cot_length_anomaly_multiplier: float = Field(
+        default=3.0,
+        ge=1.5,
+        description="Baseline multiplier for length anomaly detection",
+    )
+    cot_length_anomaly_default_baseline: int = Field(
+        default=500,
+        ge=50,
+        description="Default reasoning trace length baseline (tokens)",
+    )
+    cot_length_anomaly_max_baselines: int = Field(
+        default=10000,
+        ge=100,
+        description="Max per-(tenant, session) baselines to track",
+    )
+    cot_alignment_misalign_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Alignment score below this is MISALIGNED",
+    )
+    cot_defense_block_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Combined CoT defense score for blocking",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)

@@ -136,6 +136,9 @@ from aegis.middleware.metrics import (
     INTERAGENT_MESSAGES_SCANNED,
     INTERAGENT_INJECTION_DETECTED,
     COMPROMISED_AGENTS_DETECTED,
+    COT_DEFENSE_SIGNALS,
+    COT_DEFENSE_BLOCKS,
+    REASONING_TRACE_LENGTH,
     get_metrics_text,
     track_latency,
 )
@@ -163,6 +166,9 @@ from aegis.layers.tool_proxy import (
 from aegis.layers.agent_security.communication_monitor import InterAgentCommunicationMonitor
 from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
+from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
+from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
+from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
 from aegis.models.policy_decision import PolicyAction
 
 logger = logging.getLogger(__name__)
@@ -210,6 +216,9 @@ _tdiv: ToolDescriptionIntegrityValidator | None = None
 _trs: ToolResponseSanitizer | None = None
 _tcad: ToolChainAnomalyDetector | None = None
 _iacm: InterAgentCommunicationMonitor | None = None
+_cot_coherence: ReasoningCoherenceAnalyzer | None = None
+_cot_length: ReasoningLengthAnomalyDetector | None = None
+_cot_alignment: ReasoningOutputAlignmentValidator | None = None
 
 
 def _init_layers(
@@ -224,6 +233,7 @@ def _init_layers(
     global _distillation, _reasoning_sanitizer, _cross_modal, _manipulation_detector, _source_profiler
     global _adaptive_rate_limiter, _jailbreak_taxonomy
     global _tool_proxy, _tool_policy_engine, _tdiv, _trs, _tcad, _iacm
+    global _cot_coherence, _cot_length, _cot_alignment
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -523,6 +533,26 @@ def _init_layers(
         )
     else:
         _iacm = None
+
+    # CoT Defense — Extensions 1.2-1.4
+    if _config.cot_defense_enabled:
+        _cot_length = ReasoningLengthAnomalyDetector(
+            multiplier=_config.cot_length_anomaly_multiplier,
+            default_baseline=_config.cot_length_anomaly_default_baseline,
+            max_baselines=_config.cot_length_anomaly_max_baselines,
+        )
+        _cot_coherence = ReasoningCoherenceAnalyzer(
+            regex_engine=_innate.regex_engine if _innate else None,
+            window_size=_config.cot_coherence_window_size,
+            pivot_threshold=_config.cot_coherence_pivot_threshold,
+        )
+        _cot_alignment = ReasoningOutputAlignmentValidator(
+            misalign_threshold=_config.cot_alignment_misalign_threshold,
+        )
+    else:
+        _cot_length = None
+        _cot_coherence = None
+        _cot_alignment = None
 
     # Audit logger
     _audit = get_audit_logger()
@@ -2691,6 +2721,108 @@ async def _handle_non_streaming(
             upstream_response = _apply_redactions_to_response(
                 upstream_response, reasoning_result.redacted_text
             )
+
+        # --- CoT hijacking defense (Extensions 1.2-1.4) ---
+        if (
+            reasoning_result.has_reasoning_trace
+            and _cot_length is not None
+        ):
+            current_text = _extract_response_text(upstream_response)
+            reasoning_text = current_text  # Full text contains reasoning
+            output_text = current_text  # Will be split below if possible
+
+            # Approximate split: reasoning = detected spans, output = remainder
+            # For simplicity, use full text as reasoning and last 30% as output proxy
+            reasoning_tokens = current_text.split()
+            trace_len = len(reasoning_tokens)
+            REASONING_TRACE_LENGTH.observe(trace_len)
+
+            # 1. Length anomaly (fast, <1ms)
+            length_report = _cot_length.analyze(
+                trace_len,
+                tenant_id=context.tenant_id,
+                session_id=context.session_id,
+            )
+            length_anomaly = length_report.is_anomalous
+            if length_anomaly:
+                COT_DEFENSE_SIGNALS.labels(signal_type="length_anomaly").inc()
+
+            # 2. Coherence analysis (only if length anomaly or trace > 1000 tokens)
+            coherence_pivots = 0
+            if length_anomaly or trace_len > 1000:
+                coherence_report = await _cot_coherence.analyze(
+                    current_text,
+                    baseline_length=length_report.baseline_tokens,
+                )
+                coherence_pivots = coherence_report.pivots_detected
+                if coherence_pivots > 0:
+                    COT_DEFENSE_SIGNALS.labels(signal_type="coherence_pivot").inc()
+
+            # 3. Alignment validation (compare reasoning to output)
+            alignment_misaligned = False
+            if _cot_alignment is not None and trace_len > 200:
+                # Use first 70% as reasoning, last 30% as output
+                split_point = int(trace_len * 0.7)
+                r_text = " ".join(reasoning_tokens[:split_point])
+                o_text = " ".join(reasoning_tokens[split_point:])
+                if o_text.strip():
+                    alignment_report = await _cot_alignment.validate(
+                        r_text, o_text,
+                        length_anomaly=length_anomaly,
+                        coherence_pivots=coherence_pivots,
+                    )
+                    from aegis.layers.output.alignment_validator import AlignmentLevel
+                    alignment_misaligned = alignment_report.alignment_level == AlignmentLevel.MISALIGNED
+                    if alignment_misaligned:
+                        COT_DEFENSE_SIGNALS.labels(signal_type="alignment_mismatch").inc()
+
+            # 4. Combined score
+            cot_score = 0.0
+            signals = (length_anomaly, coherence_pivots > 0, alignment_misaligned)
+            if all(signals):
+                cot_score = 0.95
+            elif length_anomaly and alignment_misaligned:
+                cot_score = 0.7
+            elif coherence_pivots > 0 and alignment_misaligned:
+                cot_score = 0.8
+            elif length_anomaly and coherence_pivots > 0:
+                cot_score = 0.6
+            elif alignment_misaligned:
+                cot_score = 0.5
+            elif coherence_pivots > 0:
+                cot_score = 0.4
+            elif length_anomaly:
+                cot_score = 0.3
+
+            # 5. Block if above threshold
+            if cot_score >= _config.cot_defense_block_threshold:
+                COT_DEFENSE_BLOCKS.inc()
+                BLOCKS_TOTAL.labels(layer="cot_defense", reason="cot_hijacking").inc()
+                REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+                TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+                if _jailbreak_taxonomy:
+                    _jailbreak_taxonomy.log_attempt(
+                        source_id=context.api_key_hash or context.source_ip,
+                        session_id=context.session_id,
+                        detection_layer="cot_defense",
+                        confidence=cot_score,
+                        blocked=True,
+                    )
+                if _audit:
+                    _audit.log(
+                        request_id, "cot_defense", "block",
+                        tenant_id=context.tenant_id,
+                        decision_context={
+                            "cot_score": cot_score,
+                            "length_anomaly": length_anomaly,
+                            "coherence_pivots": coherence_pivots,
+                            "alignment_misaligned": alignment_misaligned,
+                        },
+                    )
+                return _block_response(
+                    request_id,
+                    "Response blocked: chain-of-thought integrity violation detected.",
+                )
 
     # --- Distillation defense analysis ---
     if _distillation:

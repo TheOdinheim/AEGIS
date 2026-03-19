@@ -356,6 +356,27 @@ GOVERNANCE_DISCLOSURES_DETECTED = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Chain-of-thought defense metrics
+# ---------------------------------------------------------------------------
+
+COT_DEFENSE_SIGNALS = Counter(
+    "aegis_cot_defense_signals_total",
+    "CoT defense signals triggered",
+    ["signal_type"],
+)
+
+COT_DEFENSE_BLOCKS = Counter(
+    "aegis_cot_defense_blocks_total",
+    "Responses blocked by CoT defense",
+)
+
+REASONING_TRACE_LENGTH = Histogram(
+    "aegis_reasoning_trace_length",
+    "Reasoning trace length in tokens",
+    buckets=[50, 100, 200, 500, 1000, 2000, 5000, 10000],
+)
+
+# ---------------------------------------------------------------------------
 # Manipulation detection (MTMD + Source Profiler)
 # ---------------------------------------------------------------------------
 

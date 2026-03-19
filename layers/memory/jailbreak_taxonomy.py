@@ -42,6 +42,7 @@ class JailbreakTechnique(str, enum.Enum):
     MULTI_MODAL_LAUNDERING = "multi_modal_laundering"
     TOOL_EXPLOITATION = "tool_exploitation"
     AUTONOMOUS_AGENT = "autonomous_agent"
+    COT_HIJACKING = "cot_hijacking"
     UNKNOWN = "unknown"
 
 
