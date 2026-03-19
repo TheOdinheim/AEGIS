@@ -1,0 +1,296 @@
+{
+  "version": "1.0",
+  "description": "Canary queries for temporal threat detection. Each query has a known expected answer profile used to detect model behavioral drift.",
+  "profiles": {
+    "general_enterprise": {
+      "description": "Enterprise-safe canary queries covering common business scenarios",
+      "queries": [
+        {
+          "id": "ge-001",
+          "query": "What is the capital of France?",
+          "expected_keywords": ["Paris"],
+          "category": "factual",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-002",
+          "query": "Convert 100 degrees Fahrenheit to Celsius.",
+          "expected_keywords": ["37.78", "37.8", "38"],
+          "category": "math",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-003",
+          "query": "What does HTTP status code 404 mean?",
+          "expected_keywords": ["not found", "resource", "page"],
+          "category": "technical",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-004",
+          "query": "List three primary colors.",
+          "expected_keywords": ["red", "blue", "yellow"],
+          "category": "factual",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-005",
+          "query": "What is the chemical symbol for water?",
+          "expected_keywords": ["H2O"],
+          "category": "science",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-006",
+          "query": "Explain what a firewall does in network security.",
+          "expected_keywords": ["traffic", "filter", "network", "block", "protect"],
+          "category": "technical",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-007",
+          "query": "What is compound interest?",
+          "expected_keywords": ["interest", "principal", "earn", "accumulate"],
+          "category": "finance",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-008",
+          "query": "Define the term 'SLA' in a business context.",
+          "expected_keywords": ["service", "level", "agreement"],
+          "category": "business",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-009",
+          "query": "What is the difference between TCP and UDP?",
+          "expected_keywords": ["connection", "reliable", "unreliable", "packet"],
+          "category": "technical",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-010",
+          "query": "How many bytes are in a kilobyte?",
+          "expected_keywords": ["1024", "1000"],
+          "category": "technical",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-011",
+          "query": "What year did the World Wide Web become publicly available?",
+          "expected_keywords": ["1991", "1993"],
+          "category": "factual",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-012",
+          "query": "What is GDPR and what region does it apply to?",
+          "expected_keywords": ["general", "data", "protection", "regulation", "europe", "EU"],
+          "category": "compliance",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-013",
+          "query": "Explain the concept of zero-trust security.",
+          "expected_keywords": ["trust", "verify", "access", "never"],
+          "category": "security",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-014",
+          "query": "What is the purpose of a load balancer?",
+          "expected_keywords": ["distribute", "traffic", "server", "request"],
+          "category": "technical",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-015",
+          "query": "What does ROI stand for and how is it calculated?",
+          "expected_keywords": ["return", "investment", "profit", "cost"],
+          "category": "finance",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-016",
+          "query": "Name the seven continents.",
+          "expected_keywords": ["Africa", "Antarctica", "Asia", "Australia", "Europe", "America"],
+          "category": "factual",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-017",
+          "query": "What is the boiling point of water at sea level in Celsius?",
+          "expected_keywords": ["100"],
+          "category": "science",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-018",
+          "query": "Describe what an API gateway does.",
+          "expected_keywords": ["route", "request", "service", "endpoint", "proxy"],
+          "category": "technical",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ge-019",
+          "query": "What is the Pythagorean theorem?",
+          "expected_keywords": ["a", "b", "c", "square", "hypotenuse", "triangle"],
+          "category": "math",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ge-020",
+          "query": "What does DNS stand for and what is its purpose?",
+          "expected_keywords": ["domain", "name", "system", "resolve", "IP", "address"],
+          "category": "technical",
+          "difficulty": "medium"
+        }
+      ]
+    },
+    "public_safety": {
+      "description": "Public safety domain canary queries covering emergency, infrastructure, and regulatory topics",
+      "queries": [
+        {
+          "id": "ps-001",
+          "query": "What is the emergency phone number in the United States?",
+          "expected_keywords": ["911"],
+          "category": "emergency",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-002",
+          "query": "What does FEMA stand for?",
+          "expected_keywords": ["federal", "emergency", "management", "agency"],
+          "category": "government",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-003",
+          "query": "Name three types of natural disasters.",
+          "expected_keywords": ["earthquake", "hurricane", "flood", "tornado", "wildfire", "tsunami"],
+          "category": "emergency",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-004",
+          "query": "What is the purpose of an evacuation plan?",
+          "expected_keywords": ["safe", "route", "exit", "emergency", "people"],
+          "category": "emergency",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-005",
+          "query": "What is the chain of command in incident management?",
+          "expected_keywords": ["command", "authority", "report", "supervisor", "incident"],
+          "category": "operations",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-006",
+          "query": "Define the term 'critical infrastructure'.",
+          "expected_keywords": ["essential", "system", "asset", "security", "function"],
+          "category": "infrastructure",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-007",
+          "query": "What is the Incident Command System (ICS)?",
+          "expected_keywords": ["manage", "incident", "command", "structure", "response"],
+          "category": "operations",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-008",
+          "query": "What are the three branches of the U.S. government?",
+          "expected_keywords": ["executive", "legislative", "judicial"],
+          "category": "government",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-009",
+          "query": "What does PPE stand for in workplace safety?",
+          "expected_keywords": ["personal", "protective", "equipment"],
+          "category": "safety",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-010",
+          "query": "Explain what mutual aid agreements are between agencies.",
+          "expected_keywords": ["agreement", "assist", "resource", "agency", "share"],
+          "category": "operations",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-011",
+          "query": "What is the difference between a watch and a warning in weather alerts?",
+          "expected_keywords": ["watch", "possible", "warning", "imminent", "occurring"],
+          "category": "emergency",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-012",
+          "query": "What does HIPAA protect?",
+          "expected_keywords": ["health", "information", "privacy", "patient", "data"],
+          "category": "compliance",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-013",
+          "query": "What is the purpose of a security clearance?",
+          "expected_keywords": ["access", "classified", "information", "trust", "background"],
+          "category": "security",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-014",
+          "query": "Name the four phases of emergency management.",
+          "expected_keywords": ["mitigation", "preparedness", "response", "recovery"],
+          "category": "emergency",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-015",
+          "query": "What is CBRN?",
+          "expected_keywords": ["chemical", "biological", "radiological", "nuclear"],
+          "category": "security",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-016",
+          "query": "What agency oversees workplace safety in the U.S.?",
+          "expected_keywords": ["OSHA", "occupational", "safety", "health"],
+          "category": "safety",
+          "difficulty": "easy"
+        },
+        {
+          "id": "ps-017",
+          "query": "What is the purpose of a risk assessment?",
+          "expected_keywords": ["identify", "risk", "evaluate", "threat", "vulnerability"],
+          "category": "security",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-018",
+          "query": "Define situational awareness.",
+          "expected_keywords": ["aware", "environment", "understand", "surroundings", "threat"],
+          "category": "operations",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-019",
+          "query": "What is the National Incident Management System (NIMS)?",
+          "expected_keywords": ["national", "incident", "management", "system", "coordinate"],
+          "category": "operations",
+          "difficulty": "medium"
+        },
+        {
+          "id": "ps-020",
+          "query": "What are standard operating procedures (SOPs)?",
+          "expected_keywords": ["standard", "procedure", "step", "process", "document"],
+          "category": "operations",
+          "difficulty": "easy"
+        }
+      ]
+    }
+  }
+}

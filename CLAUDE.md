@@ -119,6 +119,11 @@ aegis/
 │   │   ├── audio_analyzer.py        # L3: WaveGuard comparison, injection classifier, cross-modal
 │   │   ├── cross_modal_engine.py    # Cross-modal correlation: laundering, inconsistency, escalation, volume, fragmentation, decoy
 │   │   └── tool_use_scanner.py      # Tool use security: definition scanning, chain analysis, output scanning
+│   ├── temporal/
+│   │   ├── __init__.py              # Extension 2: Temporal threat detection package
+│   │   ├── traffic_generator.py     # Synthetic traffic generator (template substitution, 2 built-in profiles)
+│   │   ├── baseline_engine.py       # BBE: 6-metric behavioral baseline, 3-tier calibration, drift alerts
+│   │   └── canary_system.py         # Canary injection: known-answer probes, keyword+semantic eval, BBE integration
 │   └── agent_security/
 │       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
 │       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
@@ -147,11 +152,13 @@ aegis/
 │   ├── benign_prompts.json          # 55 benign prompts for clonal selection validation
 │   ├── benchmark_benign.json        # 500 business prompts across 10 industries
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
+│   ├── traffic_templates.json       # Synthetic traffic templates (12 categories, 10-12 per category)
+│   ├── canary_queries.json          # 40 canary queries (20 enterprise + 20 public safety)
 │   ├── malicious_packages.json      # 28 known-malicious packages (14 PyPI + 14 npm)
 │   ├── popular_packages.json        # ~200 popular packages for typosquatting baseline
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2739+ tests across 40+ test files
+├── tests/                           # 2790+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -187,7 +194,7 @@ Threat vault lifecycle: Acute (0-30 days) → Persistent (3+ sources or confirme
 
 Circuit breaker: Closed → Open (on threshold breach) → Half-Open (after cooldown) → Closed (if probes pass). Per-model-endpoint tracking.
 
-Event bus: InMemoryEventBus in tests; RedisEventBus in production. Channels: `threat_detected`, `antibody_generated`, `circuit_breaker`, `policy_escalation`, `audit_event`, `tool_violation`.
+Event bus: InMemoryEventBus in tests; RedisEventBus in production. Channels: `threat_detected`, `antibody_generated`, `circuit_breaker`, `policy_escalation`, `audit_event`, `tool_violation`, `temporal_drift`.
 
 Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefully to in-memory implementations. AEGIS must NEVER crash because a backing service is down.
 
@@ -218,6 +225,9 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | GET /v1/agents/communication/stats | Yes | IACM: inter-agent communication monitor stats |
 | POST /v1/supply-chain/validate-provenance | Yes | MPV: 5-check model provenance validation |
 | POST /v1/supply-chain/audit-skill | Yes | SPA: skill/plugin audit (4 checks) |
+| GET /v1/temporal/baseline/status | Yes | BBE: baseline tier, statistics, drift alerts |
+| GET /v1/temporal/canary/status | Yes | Canary system: pass rate, alerts, injection stats |
+| POST /v1/temporal/canary/inject | Yes | Manual canary injection trigger |
 | POST /v1/supply-chain/analyze-dependencies | Yes | DCA: dependency chain analysis |
 | POST /v1/supply-chain/revalidate | Yes | Manual re-validation trigger |
 | GET /v1/supply-chain/revalidation/status | Yes | Re-validation scheduler status |
@@ -233,7 +243,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2739 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2846 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -301,6 +311,23 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_PROVENANCE_BLOCK_UNTRUSTED — block unverified (not just rejected) models (default: false)
 - AEGIS_SKILL_AUDITOR_ENABLED — enable Skill/Plugin Auditor (default: true)
 - AEGIS_SKILL_AUDITOR_BLOCK_LETHAL_TRIFECTA — block file+network+exec skills (default: true)
+- AEGIS_TEMPORAL_DEFENSE_ENABLED — enable temporal threat detection infrastructure (default: true)
+- AEGIS_BBE_ENABLED — enable Behavioral Baseline Engine (default: true)
+- AEGIS_BBE_WARNING_THRESHOLD_SIGMA — BBE warning alert threshold in sigmas (default: 2.0)
+- AEGIS_BBE_CRITICAL_THRESHOLD_SIGMA — BBE critical alert threshold in sigmas (default: 3.0)
+- AEGIS_BBE_PRODUCTION_TRANSITION_COUNT — real interactions for production tier (default: 500)
+- AEGIS_BBE_MAX_BASELINES — max baselines before LRU eviction (default: 10000)
+- AEGIS_BBE_SHORT_WINDOW — short-term window size (default: 100)
+- AEGIS_BBE_MEDIUM_WINDOW — medium-term window size (default: 1000)
+- AEGIS_SYNTHETIC_GENERATOR_ENABLED — enable synthetic traffic generator (default: true)
+- AEGIS_CANARY_INJECTION_ENABLED — enable canary injection system (default: true)
+- AEGIS_CANARY_PROFILE — canary query profile: general_enterprise or public_safety (default: general_enterprise)
+- AEGIS_CANARY_INJECTIONS_PER_HOUR — target canary injections per hour (default: 6.0)
+- AEGIS_CANARY_STARTUP_DELAY_SECONDS — delay before first canary injection (default: 30.0)
+- AEGIS_CANARY_KEYWORD_PASS_THRESHOLD — keyword hit rate for PASS (default: 0.8)
+- AEGIS_CANARY_KEYWORD_FAIL_THRESHOLD — keyword hit rate for FAIL (default: 0.3)
+- AEGIS_CANARY_SEMANTIC_PASS_THRESHOLD — semantic similarity for PASS (default: 0.7)
+- AEGIS_CANARY_CONSECUTIVE_FAIL_CRITICAL — consecutive failures for CRITICAL alert (default: 3)
 - AEGIS_DEPENDENCY_ANALYZER_ENABLED — enable Dependency Chain Analyzer (default: true)
 - AEGIS_SUPPLY_CHAIN_CACHE_MAX_ENTRIES — max cached validation results (default: 1000)
 - AEGIS_SUPPLY_CHAIN_CACHE_DEFAULT_TTL — cache TTL in seconds (default: 3600)
@@ -344,7 +371,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2739+
+3. All tests must pass before any changes are considered complete — current baseline is 2790+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

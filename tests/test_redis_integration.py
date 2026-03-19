@@ -417,7 +417,7 @@ class TestInMemoryEventBus:
         assert CHANNEL_CIRCUIT_BREAKER in ALL_CHANNELS
         assert CHANNEL_ANTIBODY_GENERATED in ALL_CHANNELS
         assert CHANNEL_AUDIT_EVENT in ALL_CHANNELS
-        assert len(ALL_CHANNELS) == 6
+        assert len(ALL_CHANNELS) == 7
 
     @pytest.mark.asyncio
     async def test_backend_name(self):

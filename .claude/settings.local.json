@@ -153,7 +153,14 @@
       "Bash(python3 -m pytest tests/test_cot_defense.py -x -q --tb=short -p no:warnings 2>&1)",
       "Bash(python -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)",
       "Bash(python3 -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)",
-      "Bash(python3 -m pytest tests/test_dependency_analyzer.py -x -q --tb=short -p no:warnings 2>&1)"
+      "Bash(python3 -m pytest tests/test_dependency_analyzer.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_temporal_baseline.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_canary_system.py -x -q --tb=short -p no:warnings 2>&1 | tail -40)",
+      "Bash(python3 -m pytest tests/test_canary_system.py -x -q --tb=short -p no:warnings 2>&1 | tail -30)",
+      "Bash(python3 -c \"\nfrom layers.temporal.canary_system import CanaryInjectionSystem\ns = CanaryInjectionSystem\\(\\)\nscore = s._jaccard_fallback\\('Paris is the capital of France', ['Paris']\\)\nprint\\(f'Jaccard: {score}'\\)\nkw = s._compute_keyword_score\\('Paris is the capital of France', ['Paris']\\)\nprint\\(f'Keyword: {kw}'\\)\nprint\\(f'Verdict: {s._determine_verdict\\(kw, score\\)}'\\)\n\")",
+      "Bash(python3 -m pytest tests/test_canary_system.py -x -q --tb=short -p no:warnings 2>&1 | tail -15)",
+      "Bash(echo $AEGIS_API_KEY)",
+      "Bash(python3 -m pytest tests/test_canary_system.py -x -q --tb=short -p no:warnings 2>&1 | tail -20)"
     ]
   }
 }

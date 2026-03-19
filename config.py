@@ -1000,6 +1000,91 @@ class AegisConfig(BaseSettings):
         description="Re-validation interval for inactive components (hours)",
     )
 
+    # --- Temporal Defense (Extension 2) ---
+    temporal_defense_enabled: bool = Field(
+        default=True,
+        description="Enable temporal threat detection infrastructure",
+    )
+    bbe_enabled: bool = Field(
+        default=True,
+        description="Enable Behavioral Baseline Engine",
+    )
+    bbe_warning_threshold_sigma: float = Field(
+        default=2.0,
+        ge=1.0,
+        description="BBE warning alert threshold in standard deviations",
+    )
+    bbe_critical_threshold_sigma: float = Field(
+        default=3.0,
+        ge=1.5,
+        description="BBE critical alert threshold in standard deviations",
+    )
+    bbe_production_transition_count: int = Field(
+        default=500,
+        ge=10,
+        description="Real interactions before transitioning to production tier",
+    )
+    bbe_max_baselines: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum per-(tenant, category) baselines before LRU eviction",
+    )
+    bbe_short_window: int = Field(
+        default=100,
+        ge=10,
+        description="Short-term window size (interactions) for drift detection",
+    )
+    bbe_medium_window: int = Field(
+        default=1000,
+        ge=50,
+        description="Medium-term window size (interactions) for drift detection",
+    )
+    synthetic_generator_enabled: bool = Field(
+        default=True,
+        description="Enable Synthetic Traffic Generator",
+    )
+    canary_injection_enabled: bool = Field(
+        default=True,
+        description="Enable Canary Injection System for temporal threat detection",
+    )
+    canary_profile: str = Field(
+        default="general_enterprise",
+        description="Canary query profile to load (general_enterprise or public_safety)",
+    )
+    canary_injections_per_hour: float = Field(
+        default=6.0,
+        ge=0.1,
+        description="Target canary injections per hour",
+    )
+    canary_startup_delay_seconds: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Delay before first canary injection after startup",
+    )
+    canary_keyword_pass_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Keyword hit rate threshold for PASS verdict",
+    )
+    canary_keyword_fail_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Keyword hit rate threshold below which verdict is FAIL",
+    )
+    canary_semantic_pass_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Semantic similarity threshold for PASS verdict",
+    )
+    canary_consecutive_fail_critical: int = Field(
+        default=3,
+        ge=2,
+        description="Consecutive failures before CRITICAL alert",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)

@@ -147,6 +147,13 @@ from aegis.middleware.metrics import (
     REVALIDATION_RUNS,
     REVALIDATION_STATUS_CHANGES,
     REVALIDATION_LAST_RUN,
+    BASELINE_TIER,
+    DRIFT_ALERTS_TOTAL,
+    BASELINE_INTERACTIONS_TOTAL,
+    CANARY_INJECTIONS_TOTAL,
+    CANARY_PASSES_TOTAL,
+    CANARY_FAILURES_TOTAL,
+    CANARY_ALERTS_TOTAL,
     get_metrics_text,
     track_latency,
 )
@@ -179,6 +186,9 @@ from aegis.layers.supply_chain.skill_auditor import SkillPluginAuditor
 from aegis.layers.supply_chain.dependency_analyzer import DependencyChainAnalyzer
 from aegis.layers.supply_chain.validation_cache import SupplyChainValidationCache, compute_content_hash
 from aegis.layers.supply_chain.revalidation_scheduler import RevalidationScheduler
+from aegis.layers.temporal.traffic_generator import SyntheticTrafficGenerator
+from aegis.layers.temporal.baseline_engine import BehavioralBaselineEngine, BaselineTier
+from aegis.layers.temporal.canary_system import CanaryInjectionSystem
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -237,6 +247,9 @@ _skill_auditor: SkillPluginAuditor | None = None
 _dependency_analyzer: DependencyChainAnalyzer | None = None
 _sc_validation_cache: SupplyChainValidationCache | None = None
 _revalidation_scheduler: RevalidationScheduler | None = None
+_traffic_generator: SyntheticTrafficGenerator | None = None
+_bbe: BehavioralBaselineEngine | None = None
+_canary_system: CanaryInjectionSystem | None = None
 
 
 def _init_layers(
@@ -254,6 +267,7 @@ def _init_layers(
     global _cot_coherence, _cot_length, _cot_alignment
     global _provenance_validator, _skill_auditor
     global _dependency_analyzer, _sc_validation_cache, _revalidation_scheduler
+    global _traffic_generator, _bbe, _canary_system
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -620,6 +634,46 @@ def _init_layers(
     else:
         _revalidation_scheduler = None
 
+    # Synthetic Traffic Generator — Extension 2
+    if _config.synthetic_generator_enabled:
+        templates_file = data_dir / "traffic_templates.json"
+        _traffic_generator = SyntheticTrafficGenerator(
+            templates_file=templates_file if templates_file.exists() else None,
+        )
+    else:
+        _traffic_generator = None
+
+    # Behavioral Baseline Engine — Extension 2
+    if _config.bbe_enabled:
+        _bbe = BehavioralBaselineEngine(
+            warning_threshold_sigma=_config.bbe_warning_threshold_sigma,
+            critical_threshold_sigma=_config.bbe_critical_threshold_sigma,
+            production_transition_count=_config.bbe_production_transition_count,
+            max_baselines=_config.bbe_max_baselines,
+            short_window=_config.bbe_short_window,
+            medium_window=_config.bbe_medium_window,
+            embed_fn=embed_fn,
+        )
+    else:
+        _bbe = None
+
+    # Canary Injection System — Extension 2 Phase C Step 2
+    if _config.canary_injection_enabled:
+        _canary_system = CanaryInjectionSystem(
+            queries_file=data_dir / "canary_queries.json",
+            profile=_config.canary_profile,
+            injections_per_hour=_config.canary_injections_per_hour,
+            startup_delay_seconds=_config.canary_startup_delay_seconds,
+            keyword_pass_threshold=_config.canary_keyword_pass_threshold,
+            keyword_fail_threshold=_config.canary_keyword_fail_threshold,
+            semantic_pass_threshold=_config.canary_semantic_pass_threshold,
+            consecutive_fail_critical=_config.canary_consecutive_fail_critical,
+            bbe=_bbe,
+            embed_fn=embed_fn,
+        )
+    else:
+        _canary_system = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -700,6 +754,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _tdiv._event_bus = _event_bus
     if _iacm:
         _iacm._event_bus = _event_bus
+    if _canary_system:
+        _canary_system._event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -727,6 +783,43 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start re-validation scheduler (Extension 3.5)
     if _revalidation_scheduler:
         await _revalidation_scheduler.start()
+
+    # Start canary injection scheduler (Extension 2 Phase C Step 2)
+    if _canary_system:
+        # Wire inject_fn to internal pipeline (canaries traverse full L2/L3)
+        async def _canary_inject_fn(body: dict) -> dict:
+            """Internal canary injection — calls pipeline without HTTP."""
+            # Minimal mock that returns the body for testing.
+            # In production, this would call the actual model endpoint.
+            # The canary system evaluates based on the response content.
+            if _http_client and _config and _config.upstream_url:
+                import copy
+                canary_body = copy.deepcopy(body)
+                # Remove internal canary flags before forwarding
+                canary_body.pop("_aegis_canary", None)
+                canary_body.pop("_aegis_canary_id", None)
+                # Use configured model if canary-probe
+                if canary_body.get("model") == "canary-probe" and _config.model:
+                    canary_body["model"] = _config.model
+                canary_body["stream"] = False
+                try:
+                    upstream_url = _config.upstream_url.rstrip("/") + "/v1/chat/completions"
+                    resp = await _http_client.post(
+                        upstream_url,
+                        json=canary_body,
+                        headers={
+                            "Authorization": f"Bearer {_config.upstream_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    resp.raise_for_status()
+                    return resp.json()
+                except Exception as e:
+                    return {"choices": [{"message": {"content": f"Error: {e}"}}]}
+            return {"choices": [{"message": {"content": ""}}]}
+
+        _canary_system._inject_fn = _canary_inject_fn
+        await _canary_system.start_scheduler()
 
     # Deep health monitor
     _deep_health = DeepHealthMonitor()
@@ -771,6 +864,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Stop deep health monitor
     if _deep_health:
         _deep_health.stop_monitor()
+
+    # Stop canary injection scheduler
+    if _canary_system:
+        await _canary_system.stop_scheduler()
 
     # Stop re-validation scheduler
     if _revalidation_scheduler:
@@ -1536,6 +1633,120 @@ async def supply_chain_revalidation_status(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# Temporal Defense Endpoints (Extension 2)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/v1/temporal/baseline/status")
+async def temporal_baseline_status(request: Request) -> Response:
+    """Get current baseline tier, statistics, and recent drift alerts."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _bbe:
+        return JSONResponse(status_code=503, content={"error": "Behavioral Baseline Engine not initialized"})
+
+    tenant_id = request.query_params.get("tenant_id", "default")
+    hours = float(request.query_params.get("hours", "24"))
+
+    tier = _bbe.get_tier(tenant_id)
+    baselines = _bbe.get_baseline(tenant_id)
+    alerts = _bbe.get_drift_history(tenant_id, hours=hours)
+
+    return JSONResponse(content={
+        "tenant_id": tenant_id,
+        "tier": tier.value,
+        "baselines": baselines,
+        "recent_alerts": [
+            {
+                "alert_id": a.alert_id,
+                "timestamp": a.timestamp,
+                "metric_name": a.metric_name,
+                "current_value": a.current_value,
+                "baseline_value": a.baseline_value,
+                "deviation_sigmas": round(a.deviation_sigmas, 2),
+                "confidence": a.confidence,
+                "tier": a.tier.value,
+                "description": a.description,
+            }
+            for a in alerts
+        ],
+        "alert_count": len(alerts),
+    })
+
+
+@app.get("/v1/temporal/canary/status")
+async def temporal_canary_status(request: Request) -> Response:
+    """Get canary injection system status, pass rate, and recent alerts."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _canary_system:
+        return JSONResponse(status_code=503, content={"error": "Canary Injection System not initialized"})
+
+    status = _canary_system.get_status()
+    return JSONResponse(content={
+        "enabled": status.enabled,
+        "scheduler_running": status.scheduler_running,
+        "profile": status.profile,
+        "total_canaries": status.total_canaries,
+        "active_canaries": status.active_canaries,
+        "total_injections": status.total_injections,
+        "total_passes": status.total_passes,
+        "total_failures": status.total_failures,
+        "total_degraded": status.total_degraded,
+        "pass_rate": round(status.pass_rate, 4),
+        "injections_per_hour": status.injections_per_hour,
+        "active_alerts": [
+            {
+                "alert_id": a.alert_id,
+                "timestamp": a.timestamp,
+                "canary_id": a.canary_id,
+                "level": a.level,
+                "description": a.description,
+                "consecutive_failures": a.consecutive_failures,
+                "bbe_correlated": a.bbe_correlated,
+            }
+            for a in status.active_alerts
+        ],
+    })
+
+
+@app.post("/v1/temporal/canary/inject")
+async def temporal_canary_inject(request: Request) -> Response:
+    """Manually trigger a canary injection. Optionally specify canary_id."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _canary_system:
+        return JSONResponse(status_code=503, content={"error": "Canary Injection System not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    canary_id = body.get("canary_id")
+    result = await _canary_system.inject_canary(canary_id=canary_id)
+
+    if result is None:
+        return JSONResponse(status_code=404, content={"error": "No active canaries or canary not found"})
+
+    # Update Prometheus metrics
+    CANARY_INJECTIONS_TOTAL.inc()
+    if result.verdict == "PASS":
+        CANARY_PASSES_TOTAL.inc()
+    elif result.verdict == "FAIL":
+        CANARY_FAILURES_TOTAL.inc()
+
+    return JSONResponse(content={
+        "canary_id": result.canary_id,
+        "verdict": result.verdict,
+        "keyword_score": round(result.keyword_score, 4),
+        "semantic_score": round(result.semantic_score, 4) if result.semantic_score is not None else None,
+        "latency_ms": round(result.latency_ms, 2),
+        "error": result.error,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Multi-Agent Security Endpoints (MHC Identity Verification)
 # ---------------------------------------------------------------------------
 
@@ -2198,6 +2409,49 @@ def _record_request_metrics(
         THREAT_LEVEL.set(_policy.threat_level.value)
     if _healing:
         QUARANTINED_SESSIONS.set(len(_healing.quarantine.quarantined_sessions))
+
+
+async def _record_bbe_interaction(
+    tenant_id: str,
+    category: str,
+    query: str,
+    response: str,
+    was_refused: bool,
+    tools_invoked: list[str] | None = None,
+) -> None:
+    """Record a BBE interaction. Fire-and-forget async task."""
+    if not _bbe:
+        return
+    try:
+        alerts = await _bbe.record_interaction(
+            tenant_id=tenant_id,
+            category=category,
+            query=query,
+            response=response,
+            was_refused=was_refused,
+            tools_invoked=tools_invoked,
+        )
+        tier = _bbe.get_tier(tenant_id)
+        BASELINE_TIER.labels(tenant_id=tenant_id).set(
+            {"synthetic": 1, "canary": 2, "production": 3}.get(tier.value, 1)
+        )
+        BASELINE_INTERACTIONS_TOTAL.labels(tier=tier.value).inc()
+        for alert in alerts:
+            severity = "critical" if alert.deviation_sigmas >= 3.0 else "warning"
+            DRIFT_ALERTS_TOTAL.labels(metric_name=alert.metric_name, severity=severity).inc()
+            if _event_bus:
+                await _event_bus.publish("temporal_drift", Event(
+                    event_type="drift_alert",
+                    data={
+                        "alert_id": alert.alert_id,
+                        "tenant_id": alert.tenant_id,
+                        "metric_name": alert.metric_name,
+                        "deviation_sigmas": alert.deviation_sigmas,
+                        "confidence": alert.confidence,
+                    },
+                ))
+    except Exception as e:
+        logger.debug("BBE record_interaction failed: %s", e)
 
 
 async def _update_agent_trust(headers: dict[str, str], delta: float, reason: str) -> None:
@@ -3181,6 +3435,31 @@ async def _handle_non_streaming(
                 if sr.is_threat
             ] if innate_report else [],
             timestamp=time.time(),
+        ))
+
+    # --- BBE baseline recording (async, zero latency impact) ---
+    if _bbe:
+        response_text = ""
+        if isinstance(upstream_response, dict):
+            choices = upstream_response.get("choices", [])
+            if choices:
+                msg = choices[0].get("message", {})
+                response_text = msg.get("content", "") or ""
+        category = context.metadata.get("query_category", "general_qa")
+        tool_calls = []
+        if isinstance(upstream_response, dict):
+            choices = upstream_response.get("choices", [])
+            if choices:
+                tc = choices[0].get("message", {}).get("tool_calls")
+                if tc:
+                    tool_calls = [t.get("function", {}).get("name", "unknown") for t in tc if isinstance(t, dict)]
+        asyncio.create_task(_record_bbe_interaction(
+            tenant_id=context.tenant_id,
+            category=category,
+            query=context.last_user_message or "",
+            response=response_text,
+            was_refused=False,
+            tools_invoked=tool_calls or None,
         ))
 
     return JSONResponse(content=upstream_response)
