@@ -125,6 +125,11 @@ from aegis.middleware.metrics import (
     MANIPULATION_SIGNALS,
     MANIPULATION_BLOCKS,
     SOURCE_RISK_LEVEL,
+    ADAPTIVE_RATE_SLOWDOWNS,
+    ADAPTIVE_RATE_HARD_STOPS,
+    ADAPTIVE_RATE_COOLING,
+    JAILBREAK_ATTEMPTS,
+    JAILBREAK_TECHNIQUES_ACTIVE,
     get_metrics_text,
     track_latency,
 )
@@ -140,6 +145,8 @@ from aegis.layers.adaptive.distillation_defense import DistillationDefenseAnalyz
 from aegis.layers.adaptive.distillation_models import InteractionRecord
 from aegis.layers.adaptive.manipulation_detector import MultiTurnManipulationDetector
 from aegis.layers.adaptive.source_profiler import SourceBehavioralProfiler, ProfileUpdate
+from aegis.layers.adaptive_rate_limiter import AdaptiveRateLimiter
+from aegis.layers.memory.jailbreak_taxonomy import JailbreakTaxonomyLogger, JailbreakTechnique
 from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.models.policy_decision import PolicyAction
@@ -181,6 +188,8 @@ _distillation: DistillationDefenseAnalyzer | None = None
 _reasoning_sanitizer: ReasoningTraceSanitizer | None = None
 _manipulation_detector: MultiTurnManipulationDetector | None = None
 _source_profiler: SourceBehavioralProfiler | None = None
+_adaptive_rate_limiter: AdaptiveRateLimiter | None = None
+_jailbreak_taxonomy: JailbreakTaxonomyLogger | None = None
 
 
 def _init_layers(
@@ -193,6 +202,7 @@ def _init_layers(
     global _barrier, _innate, _adaptive, _output, _policy, _healing, _vault, _config, _http_client, _audit, _threat_intel
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
     global _distillation, _reasoning_sanitizer, _cross_modal, _manipulation_detector, _source_profiler
+    global _adaptive_rate_limiter, _jailbreak_taxonomy
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -416,6 +426,25 @@ def _init_layers(
         )
     else:
         _source_profiler = None
+
+    # Adaptive Rate Limiter — Extension 5.4
+    if _config.adaptive_rate_limit_enabled:
+        _adaptive_rate_limiter = AdaptiveRateLimiter(
+            base_rpm=_config.barrier.rate_limit_rpm,
+            hard_stop_threshold=_config.adaptive_rate_limit_hard_stop_threshold,
+            hard_stop_duration=_config.adaptive_rate_limit_hard_stop_duration,
+            max_states=_config.adaptive_rate_limit_max_states,
+        )
+    else:
+        _adaptive_rate_limiter = None
+
+    # Jailbreak Taxonomy Logger — Extension 5.5
+    if _config.jailbreak_taxonomy_enabled:
+        _jailbreak_taxonomy = JailbreakTaxonomyLogger(
+            max_attempts=_config.jailbreak_taxonomy_max_attempts,
+        )
+    else:
+        _jailbreak_taxonomy = None
 
     # Audit logger
     _audit = get_audit_logger()
@@ -825,6 +854,35 @@ async def vault_stats(request: Request) -> Response:
     if not _vault:
         return JSONResponse(content={"error": "Vault not initialized", "total_indicators": 0})
     return JSONResponse(content=_vault.get_stats())
+
+
+@app.get("/v1/taxonomy/stats")
+async def taxonomy_stats(request: Request) -> Response:
+    """Jailbreak attempt taxonomy statistics.
+
+    Returns classification breakdown, technique trends, and top techniques.
+    Requires authentication to prevent information leakage about detection
+    patterns and attack prevalence.
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if not _jailbreak_taxonomy:
+        return JSONResponse(content={
+            "error": "Taxonomy logger not enabled",
+            "total_attempts": 0,
+        })
+    stats = _jailbreak_taxonomy.get_stats()
+    return JSONResponse(content={
+        "total_attempts": stats.total_attempts,
+        "by_technique": {k.value: v for k, v in stats.by_technique.items()},
+        "by_detection_layer": stats.by_detection_layer,
+        "top_techniques": [(t.value, c) for t, c in stats.top_techniques],
+        "trend_window_hours": stats.trend_window_hours,
+        "recent_trend": {k.value: v for k, v in stats.recent_trend.items()},
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1905,9 +1963,22 @@ async def _process_request(request: Request, request_id: str) -> Response:
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
         _record_distillation_interaction(context, was_blocked=True, block_reason="innate_threshold")
+        if _jailbreak_taxonomy:
+            _jailbreak_taxonomy.log_attempt(
+                source_id=context.api_key_hash or context.source_ip,
+                session_id=context.session_id,
+                detection_layer="innate",
+                confidence=innate_report.max_confidence,
+                blocked=True,
+                pattern_ids=[
+                    sr.scanner_id for sr in (innate_report.scanner_results or [])
+                    if sr.is_threat
+                ],
+            )
         return _block_response(request_id, "Request blocked by AEGIS innate detection.")
 
     # --- MTMD: Record turn and check for manipulation patterns ---
+    mtmd_report = None
     if _manipulation_detector:
         _manipulation_detector.record_turn(
             source_id=context.api_key_hash or context.source_ip,
@@ -1936,9 +2007,54 @@ async def _process_request(request: Request, request_id: str) -> Response:
                     session_id=context.session_id,
                     confidence=mtmd_report.manipulation_score,
                 )
+            if _jailbreak_taxonomy:
+                _jailbreak_taxonomy.log_attempt(
+                    source_id=context.api_key_hash or context.source_ip,
+                    session_id=context.session_id,
+                    detection_layer="manipulation",
+                    confidence=mtmd_report.manipulation_score,
+                    blocked=True,
+                    mtmd_signal_types=[s.signal_type.value for s in mtmd_report.signals],
+                )
             REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
             TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
             return _block_response(request_id, "Request blocked by AEGIS manipulation detection.")
+
+    # --- Adaptive rate limiter: adjust based on manipulation risk ---
+    # mtmd_report was set above in the MTMD block (or remains unbound if MTMD disabled)
+    if _adaptive_rate_limiter:
+        source_id = context.api_key_hash or context.source_ip
+        risk_score = _source_profiler.get_risk_score(source_id) if _source_profiler else 0.0
+        manipulation_flagged = bool(
+            _manipulation_detector and mtmd_report and mtmd_report.should_alert
+        )
+        rate_decision = _adaptive_rate_limiter.check(
+            source_id, risk_score, manipulation_flagged,
+        )
+        if not rate_decision.allowed:
+            ADAPTIVE_RATE_HARD_STOPS.inc()
+            BLOCKS_TOTAL.labels(layer="adaptive_rate", reason=rate_decision.reason).inc()
+            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="429").inc()
+            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "message": "Rate limited: session terminated for security reasons.",
+                        "type": "rate_limit",
+                        "code": "aegis_adaptive_rate_limit",
+                        "request_id": request_id,
+                    }
+                },
+                headers={"Retry-After": str(int(rate_decision.cooling_remaining_seconds))},
+            )
+        if rate_decision.slowdown_factor < 1.0:
+            level = "critical" if rate_decision.slowdown_factor <= 0.1 else (
+                "high" if rate_decision.slowdown_factor <= 0.3 else (
+                    "elevated" if rate_decision.slowdown_factor <= 0.6 else "low"
+                )
+            )
+            ADAPTIVE_RATE_SLOWDOWNS.labels(risk_level=level).inc()
 
     # --- L3 Adaptive (async, parallel with model call) ---
     adaptive_task = asyncio.create_task(
@@ -2048,6 +2164,7 @@ async def _process_request(request: Request, request_id: str) -> Response:
             body, upstream_url, request_id, adaptive_task,
             system_prompt, scrutiny_level, context, breaker,
             canary_token=canary_token,
+            innate_report=innate_report,
         )
     else:
         return await _handle_non_streaming(
@@ -2273,6 +2390,14 @@ async def _handle_non_streaming(
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
         _record_distillation_interaction(context, was_blocked=True, block_reason="adaptive_mcav")
+        if _jailbreak_taxonomy:
+            _jailbreak_taxonomy.log_attempt(
+                source_id=context.api_key_hash or context.source_ip,
+                session_id=context.session_id,
+                detection_layer="adaptive",
+                confidence=adaptive_report.mcav_score,
+                blocked=True,
+            )
         return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
 
     # --- Canary verification on output ---
@@ -2362,6 +2487,14 @@ async def _handle_non_streaming(
         )
         REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
         _record_distillation_interaction(context, was_blocked=True, block_reason="output_cascade", response_text=response_text)
+        if _jailbreak_taxonomy:
+            _jailbreak_taxonomy.log_attempt(
+                source_id=context.api_key_hash or context.source_ip,
+                session_id=context.session_id,
+                detection_layer="output",
+                confidence=1.0,
+                blocked=True,
+            )
         return _block_response(
             request_id,
             "Response blocked by AEGIS output validation.",
@@ -2426,6 +2559,14 @@ async def _handle_non_streaming(
                 )
             REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
             TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            if _jailbreak_taxonomy:
+                _jailbreak_taxonomy.log_attempt(
+                    source_id=context.api_key_hash or context.source_ip,
+                    session_id=context.session_id,
+                    detection_layer="distillation",
+                    confidence=distill_report.combined_threat_score,
+                    blocked=True,
+                )
             return _block_response(
                 request_id,
                 "Request blocked: anomalous query pattern detected.",
@@ -2476,6 +2617,7 @@ async def _handle_streaming(
     context,
     breaker,
     canary_token: str | None = None,
+    innate_report: InnateScanReport | None = None,
 ) -> Response:
     """Handle streaming (SSE) request with StreamingInterceptor.
 
@@ -2618,6 +2760,21 @@ async def _handle_streaming(
         return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
 
     REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="200").inc()
+
+    # --- Source profiler update for streaming path ---
+    if _source_profiler and innate_report:
+        _source_profiler.update(ProfileUpdate(
+            source_id=context.api_key_hash or context.source_ip,
+            turn_content=context.last_user_message or "",
+            injection_score=innate_report.max_confidence,
+            was_blocked=False,
+            detection_categories=[
+                sr.scanner_id for sr in (innate_report.scanner_results or [])
+                if sr.is_threat
+            ],
+            timestamp=time.time(),
+        ))
+
     return StreamingResponse(
         stream_generator(),
         media_type="text/event-stream",

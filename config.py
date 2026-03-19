@@ -763,6 +763,38 @@ class AegisConfig(BaseSettings):
         description="Maximum source profiles before LRU eviction",
     )
 
+    # --- Adaptive rate limiting ---
+    adaptive_rate_limit_enabled: bool = Field(
+        default=True,
+        description="Enable adaptive rate limiting based on manipulation risk",
+    )
+    adaptive_rate_limit_hard_stop_threshold: int = Field(
+        default=5,
+        ge=2,
+        description="Manipulation attempts before hard stop",
+    )
+    adaptive_rate_limit_hard_stop_duration: int = Field(
+        default=300,
+        ge=30,
+        description="Hard stop duration in seconds",
+    )
+    adaptive_rate_limit_max_states: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum adaptive rate limit states",
+    )
+
+    # --- Jailbreak taxonomy ---
+    jailbreak_taxonomy_enabled: bool = Field(
+        default=True,
+        description="Enable jailbreak attempt taxonomy logging",
+    )
+    jailbreak_taxonomy_max_attempts: int = Field(
+        default=50000,
+        ge=1000,
+        description="Maximum taxonomy log entries before FIFO eviction",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)

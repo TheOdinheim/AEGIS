@@ -57,9 +57,11 @@ aegis/
 │   │   ├── margin_booster.py        # Confidence margin booster for fragile DeBERTa detections
 │   │   ├── manipulation_detector.py # MTMD: 5-strategy autonomous jailbreak agent detection
 │   │   └── source_profiler.py       # Source behavioral profiling: diversity, injection rate, automation
+│   ├── adaptive_rate_limiter.py      # Adaptive per-source rate limiting (slowdown, cooling, hard stop)
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
-│   │   └── signatures.py            # Clonal selection generator + SignatureStore
+│   │   ├── signatures.py           # Clonal selection generator + SignatureStore
+│   │   └── jailbreak_taxonomy.py   # 14-category jailbreak attempt classification and trend tracking
 │   ├── output/
 │   │   ├── __init__.py              # OutputValidationLayer: 5-stage cascade orchestrator
 │   │   ├── pii_redactor.py          # Stage 1: Presidio PII + 8 secret types (AWS, OpenAI, Anthropic, GitHub, etc.)
@@ -131,7 +133,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2414+ tests across 40+ test files
+├── tests/                           # 2455+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -192,6 +194,7 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | POST /v1/federated/round | Yes | Trigger federated learning round |
 | POST /v1/admin/backup | Yes | Backup vault + signatures |
 | POST /v1/admin/restore | Yes | Restore vault from backup |
+| GET /v1/taxonomy/stats | Yes | Jailbreak taxonomy statistics |
 | GET /v1/admin/deep-health | Yes | Deep health check (6 components) |
 
 ## Running Tests
@@ -202,9 +205,9 @@ Single file: `python3 -m pytest tests/test_attack_battery.py -x -q --tb=short -p
 Stress (live): `AEGIS_STRESS_FULL=1 python3 -m pytest tests/stress/test_stress.py -v --tb=short`
 APT campaigns: `python3 -m red_team.run_red_team`
 
-## Current Metrics (as of 2026-03-17)
+## Current Metrics (as of 2026-03-19)
 
-- Tests: 2414 passing, 0 failed, 7 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary)
+- Tests: 2455 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -238,6 +241,11 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_MTMD_ALERT_THRESHOLD — MTMD alerting threshold (default: 0.4)
 - AEGIS_PROFILER_ENABLED — enable source behavioral profiling (default: true)
 - AEGIS_PROFILER_MAX_PROFILES — max source profiles (default: 10000)
+- AEGIS_ADAPTIVE_RATE_LIMIT_ENABLED — enable adaptive per-source rate limiting (default: true)
+- AEGIS_ADAPTIVE_RATE_LIMIT_HARD_STOP_THRESHOLD — manipulation attempts before hard stop (default: 5)
+- AEGIS_ADAPTIVE_RATE_LIMIT_HARD_STOP_DURATION — hard stop duration in seconds (default: 300)
+- AEGIS_JAILBREAK_TAXONOMY_ENABLED — enable jailbreak attempt taxonomy logging (default: true)
+- AEGIS_JAILBREAK_TAXONOMY_MAX_ATTEMPTS — max stored attempts (default: 50000)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -275,7 +283,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2414+
+3. All tests must pass before any changes are considered complete — current baseline is 2455+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

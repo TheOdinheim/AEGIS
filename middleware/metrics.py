@@ -377,6 +377,41 @@ SOURCE_RISK_LEVEL = Gauge(
 )
 
 # ---------------------------------------------------------------------------
+# Adaptive rate limiting
+# ---------------------------------------------------------------------------
+
+ADAPTIVE_RATE_SLOWDOWNS = Counter(
+    "aegis_adaptive_rate_limit_slowdowns_total",
+    "Adaptive rate limit slowdowns applied",
+    ["risk_level"],
+)
+
+ADAPTIVE_RATE_HARD_STOPS = Counter(
+    "aegis_adaptive_rate_limit_hard_stops_total",
+    "Adaptive rate limit hard stops triggered",
+)
+
+ADAPTIVE_RATE_COOLING = Gauge(
+    "aegis_adaptive_rate_limit_cooling_active",
+    "Number of sources currently in cooling period",
+)
+
+# ---------------------------------------------------------------------------
+# Jailbreak taxonomy
+# ---------------------------------------------------------------------------
+
+JAILBREAK_ATTEMPTS = Counter(
+    "aegis_jailbreak_attempts_total",
+    "Jailbreak attempts by technique",
+    ["technique"],
+)
+
+JAILBREAK_TECHNIQUES_ACTIVE = Gauge(
+    "aegis_jailbreak_techniques_active",
+    "Distinct jailbreak techniques seen in last 24h",
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 
