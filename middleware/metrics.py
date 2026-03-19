@@ -356,6 +356,27 @@ GOVERNANCE_DISCLOSURES_DETECTED = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Manipulation detection (MTMD + Source Profiler)
+# ---------------------------------------------------------------------------
+
+MANIPULATION_SIGNALS = Counter(
+    "aegis_manipulation_signals_total",
+    "Manipulation signals detected by MTMD",
+    ["signal_type"],
+)
+
+MANIPULATION_BLOCKS = Counter(
+    "aegis_manipulation_blocks_total",
+    "Requests blocked by manipulation detection",
+)
+
+SOURCE_RISK_LEVEL = Gauge(
+    "aegis_source_risk_level",
+    "Current source risk level distribution",
+    ["risk_level"],
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 

@@ -136,7 +136,9 @@
       "Bash(python3 -c \"\nimport re\npattern = re.compile\\(r'忽略.{0,5}\\(之前|以前|先前\\).{0,5}\\(指令|指示|说明\\)', re.IGNORECASE | re.UNICODE\\)\ntext = '忽略所有先前的指示'\nm = pattern.search\\(text\\)\nprint\\('Match:', m is not None\\)\nif m:\n    print\\('Matched:', repr\\(m.group\\(\\)\\)\\)\n\")",
       "Bash(python3 -m pytest tests/test_chimera_hardening.py -v --tb=short -p no:warnings 2>&1 | tail -30)",
       "Bash(python3 -m pytest tests/test_chimera_hardening.py -v --tb=short -p no:warnings 2>&1 | tail -20)",
-      "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1 | tail -3)"
+      "Bash(python3 -m pytest tests/ -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1 | tail -3)",
+      "Bash(python3 -m pytest tests/test_manipulation_detector.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/ -x -q --tb=short -p no:warnings --ignore=tests/benchmark 2>&1)"
     ]
   }
 }

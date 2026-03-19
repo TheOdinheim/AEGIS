@@ -54,7 +54,9 @@ aegis/
 │   │   ├── multi_turn.py            # Multi-turn: escalation trajectory, boundary testing, rapid-fire, topic drift
 │   │   ├── distillation_defense.py  # Cross-session extraction detection (5 strategies)
 │   │   ├── distillation_models.py   # Data models: InteractionRecord, DistillationSignal/Report, ReasoningScanResult
-│   │   └── margin_booster.py        # Confidence margin booster for fragile DeBERTa detections
+│   │   ├── margin_booster.py        # Confidence margin booster for fragile DeBERTa detections
+│   │   ├── manipulation_detector.py # MTMD: 5-strategy autonomous jailbreak agent detection
+│   │   └── source_profiler.py       # Source behavioral profiling: diversity, injection rate, automation
 │   ├── memory/
 │   │   ├── threat_vault.py          # FAISS HNSW index, 3-phase lifecycle
 │   │   └── signatures.py            # Clonal selection generator + SignatureStore
@@ -129,7 +131,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2368+ tests across 40+ test files
+├── tests/                           # 2414+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -202,7 +204,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-17)
 
-- Tests: 2368 passing, 0 failed, 7 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary)
+- Tests: 2414 passing, 0 failed, 7 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -230,6 +232,12 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_DISTILLATION_DEFENSE_ENABLED — enable cross-session distillation defense (default: true)
 - AEGIS_REASONING_TRACE_MODE — reasoning trace sanitization: monitor, redact, or summarize (default: monitor)
 - AEGIS_TLI_AUTO_DECAY_ENABLED — automatic TLI de-escalation timers (default: true)
+- AEGIS_MANIPULATION_DETECTION_ENABLED — enable MTMD autonomous jailbreak agent detection (default: true)
+- AEGIS_MTMD_WINDOW_SIZE — MTMD sliding window size (default: 20)
+- AEGIS_MTMD_BLOCK_THRESHOLD — MTMD blocking threshold (default: 0.7)
+- AEGIS_MTMD_ALERT_THRESHOLD — MTMD alerting threshold (default: 0.4)
+- AEGIS_PROFILER_ENABLED — enable source behavioral profiling (default: true)
+- AEGIS_PROFILER_MAX_PROFILES — max source profiles (default: 10000)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -267,7 +275,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2368+
+3. All tests must pass before any changes are considered complete — current baseline is 2414+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

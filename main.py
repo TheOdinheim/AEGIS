@@ -122,6 +122,9 @@ from aegis.middleware.metrics import (
     DISTILLATION_BLOCKS,
     REASONING_TRACES_DETECTED,
     GOVERNANCE_DISCLOSURES_DETECTED,
+    MANIPULATION_SIGNALS,
+    MANIPULATION_BLOCKS,
+    SOURCE_RISK_LEVEL,
     get_metrics_text,
     track_latency,
 )
@@ -135,6 +138,9 @@ from aegis.layers.multimodal import MultimodalPreprocessor
 from aegis.layers.multimodal.cross_modal_engine import CrossModalCorrelationEngine
 from aegis.layers.adaptive.distillation_defense import DistillationDefenseAnalyzer
 from aegis.layers.adaptive.distillation_models import InteractionRecord
+from aegis.layers.adaptive.manipulation_detector import MultiTurnManipulationDetector
+from aegis.layers.adaptive.source_profiler import SourceBehavioralProfiler, ProfileUpdate
+from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.models.policy_decision import PolicyAction
 
@@ -173,6 +179,8 @@ _multimodal: MultimodalPreprocessor | None = None
 _cross_modal: CrossModalCorrelationEngine | None = None
 _distillation: DistillationDefenseAnalyzer | None = None
 _reasoning_sanitizer: ReasoningTraceSanitizer | None = None
+_manipulation_detector: MultiTurnManipulationDetector | None = None
+_source_profiler: SourceBehavioralProfiler | None = None
 
 
 def _init_layers(
@@ -184,7 +192,7 @@ def _init_layers(
     """Initialize all layers. Called during app startup."""
     global _barrier, _innate, _adaptive, _output, _policy, _healing, _vault, _config, _http_client, _audit, _threat_intel
     global _signature_store, _signature_generator, _supply_chain, _agent_security, _compliance, _federated, _multimodal
-    global _distillation, _reasoning_sanitizer, _cross_modal
+    global _distillation, _reasoning_sanitizer, _cross_modal, _manipulation_detector, _source_profiler
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -387,6 +395,27 @@ def _init_layers(
     else:
         _distillation = None
         _reasoning_sanitizer = None
+
+    # Multi-Turn Manipulation Detector (MTMD) — Extension 5.1
+    if _config.manipulation_detection_enabled:
+        _manipulation_detector = MultiTurnManipulationDetector(
+            window_size=_config.mtmd_window_size,
+            max_history=_config.mtmd_max_history,
+            block_threshold=_config.mtmd_block_threshold,
+            alert_threshold=_config.mtmd_alert_threshold,
+            embed_fn=embed_fn,
+        )
+    else:
+        _manipulation_detector = None
+
+    # Source Behavioral Profiler — Extension 5.2
+    if _config.profiler_enabled:
+        _source_profiler = SourceBehavioralProfiler(
+            max_profiles=_config.profiler_max_profiles,
+            embed_fn=embed_fn,
+        )
+    else:
+        _source_profiler = None
 
     # Audit logger
     _audit = get_audit_logger()
@@ -1878,6 +1907,39 @@ async def _process_request(request: Request, request_id: str) -> Response:
         _record_distillation_interaction(context, was_blocked=True, block_reason="innate_threshold")
         return _block_response(request_id, "Request blocked by AEGIS innate detection.")
 
+    # --- MTMD: Record turn and check for manipulation patterns ---
+    if _manipulation_detector:
+        _manipulation_detector.record_turn(
+            source_id=context.api_key_hash or context.source_ip,
+            content=context.last_user_message or "",
+            injection_score=innate_report.max_confidence,
+            was_blocked=False,
+            detection_categories=[
+                sr.scanner_id for sr in (innate_report.scanner_results or [])
+                if sr.is_threat
+            ],
+        )
+        mtmd_report = _manipulation_detector.analyze(
+            source_id=context.api_key_hash or context.source_ip,
+            session_id=context.session_id,
+        )
+        if mtmd_report.signals:
+            for sig in mtmd_report.signals:
+                MANIPULATION_SIGNALS.labels(signal_type=sig.signal_type.value).inc()
+        if mtmd_report.should_block:
+            MANIPULATION_BLOCKS.inc()
+            BLOCKS_TOTAL.labels(layer="manipulation", reason="mtmd_threshold").inc()
+            if _audit:
+                _audit.log(
+                    request_id, "manipulation", "block",
+                    tenant_id=context.tenant_id,
+                    session_id=context.session_id,
+                    confidence=mtmd_report.manipulation_score,
+                )
+            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            return _block_response(request_id, "Request blocked by AEGIS manipulation detection.")
+
     # --- L3 Adaptive (async, parallel with model call) ---
     adaptive_task = asyncio.create_task(
         _run_adaptive(context, innate_report)
@@ -1992,6 +2054,7 @@ async def _process_request(request: Request, request_id: str) -> Response:
             body, upstream_url, request_id, adaptive_task,
             system_prompt, scrutiny_level, context, breaker,
             canary_token=canary_token,
+            innate_report=innate_report,
         )
 
 
@@ -2152,6 +2215,7 @@ async def _handle_non_streaming(
     context,
     breaker,
     canary_token: str | None = None,
+    innate_report: InnateScanReport | None = None,
 ) -> Response:
     """Handle non-streaming request: forward, wait for adaptive, validate output."""
     assert _output and _policy and _healing and _http_client and _config
@@ -2384,6 +2448,21 @@ async def _handle_non_streaming(
     # Update threat level gauge
     if _policy:
         THREAT_LEVEL.set(_policy.threat_level.value)
+
+    # --- Source profiler update (async, zero latency impact) ---
+    if _source_profiler:
+        _source_profiler.update(ProfileUpdate(
+            source_id=context.api_key_hash or context.source_ip,
+            turn_content=context.last_user_message or "",
+            injection_score=innate_report.max_confidence if innate_report else 0.0,
+            was_blocked=False,
+            detection_categories=[
+                sr.scanner_id for sr in (innate_report.scanner_results or [])
+                if sr.is_threat
+            ] if innate_report else [],
+            timestamp=time.time(),
+        ))
+
     return JSONResponse(content=upstream_response)
 
 

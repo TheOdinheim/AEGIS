@@ -724,6 +724,45 @@ class AegisConfig(BaseSettings):
         description="Reasoning trace sanitizer mode: 'monitor', 'redact', or 'summarize'",
     )
 
+    # --- Manipulation detection (MTMD) ---
+    manipulation_detection_enabled: bool = Field(
+        default=True,
+        description="Enable multi-turn manipulation detector (MTMD)",
+    )
+    mtmd_window_size: int = Field(
+        default=20,
+        ge=5,
+        description="MTMD sliding window size (turns per source)",
+    )
+    mtmd_max_history: int = Field(
+        default=100,
+        ge=10,
+        description="Maximum turn records per source before LRU eviction",
+    )
+    mtmd_block_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="MTMD manipulation_score threshold for blocking",
+    )
+    mtmd_alert_threshold: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="MTMD manipulation_score threshold for alerting",
+    )
+
+    # --- Source behavioral profiling ---
+    profiler_enabled: bool = Field(
+        default=True,
+        description="Enable source behavioral profiling",
+    )
+    profiler_max_profiles: int = Field(
+        default=10000,
+        ge=100,
+        description="Maximum source profiles before LRU eviction",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
