@@ -2,8 +2,8 @@
 Temporal Threat Detection — Extension 2 Infrastructure
 
 Provides the Synthetic Traffic Generator, Behavioral Baseline Engine,
-and Canary Injection System — the foundation for all temporal detection
-components (correlation engine, date-triggered scanner, clean-state replay).
+Canary Injection System, Memory Provenance Registry, and Temporal
+Correlation Engine — the foundation for all temporal detection components.
 
 ASSUMED-BREACH POSTURE: Temporal attacks exploit the gap between injection
 and activation. Point-in-time monitors cannot detect them. Detection
@@ -29,6 +29,17 @@ from aegis.layers.temporal.canary_system import (
     CanaryAlert,
     CanarySystemStatus,
 )
+from aegis.layers.temporal.provenance_registry import (
+    MemoryProvenanceRegistry,
+    ProvenanceCategory,
+    ProvenanceRecord,
+    ProvenanceTimeline,
+)
+from aegis.layers.temporal.correlation_engine import (
+    TemporalCorrelationEngine,
+    CorrelationCandidate,
+    CorrelationReport,
+)
 
 __all__ = [
     "SyntheticTrafficGenerator",
@@ -43,4 +54,11 @@ __all__ = [
     "CanaryResult",
     "CanaryAlert",
     "CanarySystemStatus",
+    "MemoryProvenanceRegistry",
+    "ProvenanceCategory",
+    "ProvenanceRecord",
+    "ProvenanceTimeline",
+    "TemporalCorrelationEngine",
+    "CorrelationCandidate",
+    "CorrelationReport",
 ]

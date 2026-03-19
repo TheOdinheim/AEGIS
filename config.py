@@ -1084,6 +1084,33 @@ class AegisConfig(BaseSettings):
         ge=2,
         description="Consecutive failures before CRITICAL alert",
     )
+    mpr_enabled: bool = Field(
+        default=True,
+        description="Enable Memory Provenance Registry",
+    )
+    mpr_max_records: int = Field(
+        default=100000,
+        ge=100,
+        description="Maximum provenance records before FIFO eviction",
+    )
+    tce_enabled: bool = Field(
+        default=True,
+        description="Enable Temporal Correlation Engine",
+    )
+    tce_default_correlation_window_hours: float = Field(
+        default=72.0,
+        ge=1.0,
+        description="Default lookback window for correlation analysis (hours)",
+    )
+    tce_max_candidates: int = Field(
+        default=5,
+        ge=1,
+        description="Maximum correlation candidates returned per report",
+    )
+    tce_auto_correlate_on_critical: bool = Field(
+        default=True,
+        description="Auto-trigger correlation on critical drift/canary alerts",
+    )
 
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)

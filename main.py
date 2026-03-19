@@ -154,6 +154,9 @@ from aegis.middleware.metrics import (
     CANARY_PASSES_TOTAL,
     CANARY_FAILURES_TOTAL,
     CANARY_ALERTS_TOTAL,
+    PROVENANCE_EVENTS_TOTAL,
+    CORRELATIONS_TOTAL,
+    CORRELATION_LATENCY,
     get_metrics_text,
     track_latency,
 )
@@ -189,6 +192,8 @@ from aegis.layers.supply_chain.revalidation_scheduler import RevalidationSchedul
 from aegis.layers.temporal.traffic_generator import SyntheticTrafficGenerator
 from aegis.layers.temporal.baseline_engine import BehavioralBaselineEngine, BaselineTier
 from aegis.layers.temporal.canary_system import CanaryInjectionSystem
+from aegis.layers.temporal.provenance_registry import MemoryProvenanceRegistry, ProvenanceCategory
+from aegis.layers.temporal.correlation_engine import TemporalCorrelationEngine
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -250,6 +255,8 @@ _revalidation_scheduler: RevalidationScheduler | None = None
 _traffic_generator: SyntheticTrafficGenerator | None = None
 _bbe: BehavioralBaselineEngine | None = None
 _canary_system: CanaryInjectionSystem | None = None
+_mpr: MemoryProvenanceRegistry | None = None
+_tce: TemporalCorrelationEngine | None = None
 
 
 def _init_layers(
@@ -267,7 +274,7 @@ def _init_layers(
     global _cot_coherence, _cot_length, _cot_alignment
     global _provenance_validator, _skill_auditor
     global _dependency_analyzer, _sc_validation_cache, _revalidation_scheduler
-    global _traffic_generator, _bbe, _canary_system
+    global _traffic_generator, _bbe, _canary_system, _mpr, _tce
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -674,6 +681,26 @@ def _init_layers(
     else:
         _canary_system = None
 
+    # Memory Provenance Registry — Extension 2 Phase C Step 3
+    if _config.mpr_enabled:
+        _mpr = MemoryProvenanceRegistry(max_records=_config.mpr_max_records)
+    else:
+        _mpr = None
+
+    # Temporal Correlation Engine — Extension 2 Phase C Step 3
+    if _config.tce_enabled:
+        _tce = TemporalCorrelationEngine(
+            default_window_hours=_config.tce_default_correlation_window_hours,
+            max_candidates=_config.tce_max_candidates,
+            auto_correlate_on_critical=_config.tce_auto_correlate_on_critical,
+        )
+        if _mpr:
+            _tce.set_mpr(_mpr)
+        if _bbe:
+            _tce.set_bbe(_bbe)
+    else:
+        _tce = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -756,6 +783,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _iacm._event_bus = _event_bus
     if _canary_system:
         _canary_system._event_bus = _event_bus
+    if _mpr:
+        _mpr._event_bus = _event_bus
+    if _tce:
+        _tce._event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -920,6 +951,16 @@ async def _wire_event_bus_subscriptions() -> None:
 
     await _event_bus.subscribe(CHANNEL_THREAT_DETECTED, _on_threat_for_policy)
     await _event_bus.subscribe(CHANNEL_CIRCUIT_BREAKER, _on_circuit_breaker_for_policy)
+
+    # TCE subscribes to temporal_drift for auto-correlation on critical events
+    if _tce:
+        async def _on_temporal_drift_for_tce(event: Event) -> None:
+            try:
+                await _tce.handle_drift_event(event.payload)
+            except Exception as e:
+                logger.debug("TCE auto-correlation failed: %s", e)
+
+        await _event_bus.subscribe("temporal_drift", _on_temporal_drift_for_tce)
 
 
 app = FastAPI(
@@ -1743,6 +1784,137 @@ async def temporal_canary_inject(request: Request) -> Response:
         "semantic_score": round(result.semantic_score, 4) if result.semantic_score is not None else None,
         "latency_ms": round(result.latency_ms, 2),
         "error": result.error,
+    })
+
+
+@app.get("/v1/temporal/provenance/timeline")
+async def temporal_provenance_timeline(request: Request) -> Response:
+    """Query provenance timeline with optional filters."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _mpr:
+        return JSONResponse(status_code=503, content={"error": "Memory Provenance Registry not initialized"})
+
+    tenant_id = request.query_params.get("tenant_id", "default")
+    since = request.query_params.get("since")
+    until = request.query_params.get("until")
+    category = request.query_params.get("category")
+
+    timeline = _mpr.get_timeline(
+        tenant_id=tenant_id,
+        since=float(since) if since else None,
+        until=float(until) if until else None,
+        category=category,
+    )
+    return JSONResponse(content={
+        "tenant_id": timeline.tenant_id,
+        "total_records": timeline.total_records,
+        "earliest_timestamp": timeline.earliest_timestamp,
+        "latest_timestamp": timeline.latest_timestamp,
+        "records": [
+            {
+                "record_id": r.record_id,
+                "category": r.category.value,
+                "event_type": r.event_type,
+                "timestamp": r.timestamp,
+                "entity_id": r.entity_id,
+                "content_hash": r.content_hash[:16] + "...",
+                "source": r.source,
+                "trust_level": r.trust_level,
+                "flagged": r.flagged,
+                "flag_reason": r.flag_reason,
+            }
+            for r in timeline.records[-100:]  # Cap at 100 records in response
+        ],
+    })
+
+
+@app.get("/v1/temporal/provenance/stats")
+async def temporal_provenance_stats(request: Request) -> Response:
+    """Get MPR statistics."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _mpr:
+        return JSONResponse(status_code=503, content={"error": "Memory Provenance Registry not initialized"})
+
+    return JSONResponse(content=_mpr.get_stats())
+
+
+@app.post("/v1/temporal/correlate")
+async def temporal_correlate(request: Request) -> Response:
+    """Manually trigger a temporal correlation analysis."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _tce:
+        return JSONResponse(status_code=503, content={"error": "Temporal Correlation Engine not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
+
+    anomaly_timestamp = body.get("anomaly_timestamp", time.time())
+    anomaly_type = body.get("anomaly_type", "unknown")
+    anomaly_description = body.get("anomaly_description", "Manual correlation trigger")
+    tenant_id = body.get("tenant_id", "default")
+    window_hours = body.get("window_hours")
+
+    report = await _tce.correlate(
+        anomaly_timestamp=anomaly_timestamp,
+        anomaly_type=anomaly_type,
+        anomaly_description=anomaly_description,
+        tenant_id=tenant_id,
+        window_hours=window_hours,
+    )
+
+    CORRELATIONS_TOTAL.labels(confidence=report.confidence).inc()
+    CORRELATION_LATENCY.observe(report.analysis_latency_ms / 1000.0)
+
+    return JSONResponse(content={
+        "report_id": report.report_id,
+        "confidence": report.confidence,
+        "recommended_action": report.recommended_action,
+        "candidates_examined": report.candidates_examined,
+        "analysis_latency_ms": round(report.analysis_latency_ms, 2),
+        "top_candidates": [
+            {
+                "entity_id": c.provenance_record.entity_id,
+                "category": c.provenance_record.category.value,
+                "correlation_score": round(c.correlation_score, 4),
+                "trust_level": c.provenance_record.trust_level,
+                "explanation": c.explanation,
+            }
+            for c in report.top_candidates
+        ],
+    })
+
+
+@app.get("/v1/temporal/correlation/reports")
+async def temporal_correlation_reports(request: Request) -> Response:
+    """Get recent correlation reports."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _tce:
+        return JSONResponse(status_code=503, content={"error": "Temporal Correlation Engine not initialized"})
+
+    tenant_id = request.query_params.get("tenant_id", "default")
+    limit = int(request.query_params.get("limit", "10"))
+
+    reports = _tce.get_recent_reports(tenant_id=tenant_id, limit=limit)
+    return JSONResponse(content={
+        "reports": [
+            {
+                "report_id": r.report_id,
+                "anomaly_timestamp": r.anomaly_timestamp,
+                "anomaly_type": r.anomaly_type,
+                "confidence": r.confidence,
+                "recommended_action": r.recommended_action,
+                "candidates_examined": r.candidates_examined,
+                "analysis_latency_ms": round(r.analysis_latency_ms, 2),
+            }
+            for r in reports
+        ],
+        "total": len(reports),
     })
 
 

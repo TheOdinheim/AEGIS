@@ -565,6 +565,28 @@ CANARY_ALERTS_TOTAL = Counter(
 )
 
 # ---------------------------------------------------------------------------
+# Provenance & correlation metrics
+# ---------------------------------------------------------------------------
+
+PROVENANCE_EVENTS_TOTAL = Counter(
+    "aegis_provenance_events_total",
+    "Provenance events recorded by category",
+    ["category"],
+)
+
+CORRELATIONS_TOTAL = Counter(
+    "aegis_correlations_total",
+    "Correlation analyses performed by confidence",
+    ["confidence"],
+)
+
+CORRELATION_LATENCY = Histogram(
+    "aegis_correlation_latency_seconds",
+    "Temporal correlation analysis latency",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5],
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 
