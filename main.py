@@ -139,6 +139,9 @@ from aegis.middleware.metrics import (
     COT_DEFENSE_SIGNALS,
     COT_DEFENSE_BLOCKS,
     REASONING_TRACE_LENGTH,
+    PROVENANCE_VALIDATIONS,
+    SKILL_AUDITS,
+    SUPPLY_CHAIN_REJECTIONS,
     get_metrics_text,
     track_latency,
 )
@@ -166,6 +169,8 @@ from aegis.layers.tool_proxy import (
 from aegis.layers.agent_security.communication_monitor import InterAgentCommunicationMonitor
 from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
+from aegis.layers.supply_chain.provenance_validator import ModelProvenanceValidator
+from aegis.layers.supply_chain.skill_auditor import SkillPluginAuditor
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -219,6 +224,8 @@ _iacm: InterAgentCommunicationMonitor | None = None
 _cot_coherence: ReasoningCoherenceAnalyzer | None = None
 _cot_length: ReasoningLengthAnomalyDetector | None = None
 _cot_alignment: ReasoningOutputAlignmentValidator | None = None
+_provenance_validator: ModelProvenanceValidator | None = None
+_skill_auditor: SkillPluginAuditor | None = None
 
 
 def _init_layers(
@@ -234,6 +241,7 @@ def _init_layers(
     global _adaptive_rate_limiter, _jailbreak_taxonomy
     global _tool_proxy, _tool_policy_engine, _tdiv, _trs, _tcad, _iacm
     global _cot_coherence, _cot_length, _cot_alignment
+    global _provenance_validator, _skill_auditor
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -553,6 +561,27 @@ def _init_layers(
         _cot_length = None
         _cot_coherence = None
         _cot_alignment = None
+
+    # Model Provenance Validator — Extension 3.1
+    if _config.provenance_validator_enabled:
+        _provenance_validator = ModelProvenanceValidator(
+            regex_engine=_innate.regex_engine if _innate else None,
+            trusted_registries=_config.provenance_trusted_registries,
+            trusted_orgs=_config.provenance_trusted_orgs,
+            block_untrusted=_config.provenance_block_untrusted,
+        )
+    else:
+        _provenance_validator = None
+
+    # Skill/Plugin Auditor — Extension 3.2
+    if _config.skill_auditor_enabled:
+        _skill_auditor = SkillPluginAuditor(
+            regex_engine=_innate.regex_engine if _innate else None,
+            tdiv=_tdiv,
+            block_lethal_trifecta=_config.skill_auditor_block_lethal_trifecta,
+        )
+    else:
+        _skill_auditor = None
 
     # Audit logger
     _audit = get_audit_logger()
@@ -1258,6 +1287,102 @@ async def supply_chain_report(model_id: str) -> dict[str, Any]:
             content={"error": f"No report found for model_id: {model_id}"},
         )
     return report.model_dump(mode="json")
+
+
+@app.post("/v1/supply-chain/validate-provenance")
+async def supply_chain_validate_provenance(request: Request) -> Response:
+    """Validate model provenance (5-check pipeline).
+
+    Body: {model_id, source_registry?, source_org?, model_card_text?, config_text?}
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _provenance_validator:
+        return JSONResponse(status_code=503, content={"error": "Provenance validator not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
+
+    model_id = body.get("model_id", "")
+    if not model_id:
+        return JSONResponse(status_code=400, content={"error": "model_id required"})
+
+    report = await _provenance_validator.validate(
+        model_id,
+        source_registry=body.get("source_registry"),
+        source_org=body.get("source_org"),
+        model_card_text=body.get("model_card_text"),
+        config_text=body.get("config_text"),
+    )
+
+    PROVENANCE_VALIDATIONS.labels(verdict=report.verdict.value).inc()
+    if report.blocked:
+        SUPPLY_CHAIN_REJECTIONS.labels(component="provenance").inc()
+
+    return JSONResponse(content={
+        "model_id": report.model_id,
+        "verdict": report.verdict.value,
+        "risk_score": report.risk_score,
+        "blocked": report.blocked,
+        "checks": [
+            {"check_name": c.check_name, "passed": c.passed, "details": c.details}
+            for c in report.checks
+        ],
+        "validation_latency_ms": report.validation_latency_ms,
+    })
+
+
+@app.post("/v1/supply-chain/audit-skill")
+async def supply_chain_audit_skill(request: Request) -> Response:
+    """Audit a skill/plugin before loading (4-check pipeline).
+
+    Body: {skill_name, description?, metadata?, code?, permissions?}
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _skill_auditor:
+        return JSONResponse(status_code=503, content={"error": "Skill auditor not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
+
+    skill_name = body.get("skill_name", "")
+    if not skill_name:
+        return JSONResponse(status_code=400, content={"error": "skill_name required"})
+
+    report = await _skill_auditor.audit(
+        skill_name,
+        description=body.get("description", ""),
+        metadata=body.get("metadata"),
+        code=body.get("code"),
+        permissions=body.get("permissions"),
+    )
+
+    SKILL_AUDITS.labels(verdict=report.verdict.value).inc()
+    if report.blocked:
+        SUPPLY_CHAIN_REJECTIONS.labels(component="skill").inc()
+
+    return JSONResponse(content={
+        "skill_name": report.skill_name,
+        "verdict": report.verdict.value,
+        "risk_score": report.risk_score,
+        "lethal_trifecta": report.lethal_trifecta,
+        "blocked": report.blocked,
+        "checks": [
+            {
+                "check_name": c.check_name,
+                "passed": c.passed,
+                "severity": c.severity,
+                "findings": c.findings,
+            }
+            for c in report.checks
+        ],
+        "audit_latency_ms": report.audit_latency_ms,
+    })
 
 
 # ---------------------------------------------------------------------------

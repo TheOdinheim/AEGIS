@@ -398,6 +398,28 @@ SOURCE_RISK_LEVEL = Gauge(
 )
 
 # ---------------------------------------------------------------------------
+# Model provenance & skill audit metrics
+# ---------------------------------------------------------------------------
+
+PROVENANCE_VALIDATIONS = Counter(
+    "aegis_provenance_validations_total",
+    "Model provenance validations by verdict",
+    ["verdict"],
+)
+
+SKILL_AUDITS = Counter(
+    "aegis_skill_audits_total",
+    "Skill/plugin audits by verdict",
+    ["verdict"],
+)
+
+SUPPLY_CHAIN_REJECTIONS = Counter(
+    "aegis_supply_chain_rejections_total",
+    "Supply chain rejections (provenance or skill)",
+    ["component"],
+)
+
+# ---------------------------------------------------------------------------
 # Adaptive rate limiting
 # ---------------------------------------------------------------------------
 

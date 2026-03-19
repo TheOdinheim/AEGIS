@@ -150,7 +150,9 @@
       "Bash(python3 -c \"import aegis\" 2>&1; ls aegis/__init__.py 2>/dev/null)",
       "Bash(ls /home/jeremy/aegis/__init__.py 2>/dev/null; python3 -m pytest tests/test_tool_security.py::TestToolChainAnomalyDetector::test_unusual_ordering_after_baseline -x -q --tb=long -p no:warnings 2>&1 | tail -30)",
       "Bash(python3 -m pytest tests/test_tool_security.py -q --tb=short -p no:warnings 2>&1)",
-      "Bash(python3 -m pytest tests/test_cot_defense.py -x -q --tb=short -p no:warnings 2>&1)"
+      "Bash(python3 -m pytest tests/test_cot_defense.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)"
     ]
   }
 }

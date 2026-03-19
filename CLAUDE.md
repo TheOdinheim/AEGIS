@@ -93,7 +93,9 @@ aegis/
 │   │   ├── sigstore_verifier.py     # Stage 1 Enhanced: SHA-256 manifest + Sigstore signatures
 │   │   ├── serialization.py         # Stage 2: Format risk scoring, pickle-in-ZIP, ONNX/SafeTensors validation
 │   │   ├── dependency_audit.py      # Stage 3: CVE matching + SBOM generation
-│   │   └── behavioral_probe.py      # Stage 4: 10 jailbreak probes, sleeper agent detection, divergence
+│   │   ├── behavioral_probe.py      # Stage 4: 10 jailbreak probes, sleeper agent detection, divergence
+│   │   ├── provenance_validator.py  # Extension 3.1: MPV — 5-check model provenance (format, registry, hash, metadata injection, namespace)
+│   │   └── skill_auditor.py         # Extension 3.2: SPA — skill/plugin audit (descriptor injection, malicious code, permissions, AST)
 │   ├── multimodal/
 │   │   ├── __init__.py              # MultimodalPreprocessor: image, document, audio orchestrator
 │   │   ├── image_scanner.py         # L2: format validation, OCR, metadata, steganalysis
@@ -144,7 +146,7 @@ aegis/
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2628+ tests across 40+ test files
+├── tests/                           # 2684+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -209,6 +211,8 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | GET /v1/tool-proxy/stats | Yes | Tool proxy invocation and violation stats |
 | POST /v1/tool-proxy/validate-description | Yes | TDIV: validate tool description for injection |
 | GET /v1/agents/communication/stats | Yes | IACM: inter-agent communication monitor stats |
+| POST /v1/supply-chain/validate-provenance | Yes | MPV: 5-check model provenance validation |
+| POST /v1/supply-chain/audit-skill | Yes | SPA: skill/plugin audit (4 checks) |
 | GET /v1/admin/deep-health | Yes | Deep health check (6 components) |
 
 ## Running Tests
@@ -221,7 +225,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2628 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2684 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -285,6 +289,10 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_COT_LENGTH_ANOMALY_DEFAULT_BASELINE — default trace length baseline (default: 500)
 - AEGIS_COT_ALIGNMENT_MISALIGN_THRESHOLD — alignment below this is MISALIGNED (default: 0.3)
 - AEGIS_COT_DEFENSE_BLOCK_THRESHOLD — combined CoT score for blocking (default: 0.7)
+- AEGIS_PROVENANCE_VALIDATOR_ENABLED — enable Model Provenance Validator (default: true)
+- AEGIS_PROVENANCE_BLOCK_UNTRUSTED — block unverified (not just rejected) models (default: false)
+- AEGIS_SKILL_AUDITOR_ENABLED — enable Skill/Plugin Auditor (default: true)
+- AEGIS_SKILL_AUDITOR_BLOCK_LETHAL_TRIFECTA — block file+network+exec skills (default: true)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -322,7 +330,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2628+
+3. All tests must pass before any changes are considered complete — current baseline is 2684+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

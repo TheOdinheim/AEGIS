@@ -935,6 +935,37 @@ class AegisConfig(BaseSettings):
         description="Combined CoT defense score for blocking",
     )
 
+    # --- Model Provenance Validator (MPV) — Extension 3.1 ---
+    provenance_validator_enabled: bool = Field(
+        default=True,
+        description="Enable Model Provenance Validator",
+    )
+    provenance_trusted_registries: list[str] = Field(
+        default_factory=lambda: ["huggingface.co", "pytorch.org", "tensorflow.org", "onnx.ai"],
+        description="Trusted model registries (hostnames)",
+    )
+    provenance_trusted_orgs: list[str] = Field(
+        default_factory=lambda: [
+            "meta-llama", "google", "microsoft", "openai",
+            "mistralai", "anthropic", "ProtectAI", "sentence-transformers",
+        ],
+        description="Trusted model organizations",
+    )
+    provenance_block_untrusted: bool = Field(
+        default=False,
+        description="Block unverified (not just rejected) models",
+    )
+
+    # --- Skill/Plugin Auditor (SPA) — Extension 3.2 ---
+    skill_auditor_enabled: bool = Field(
+        default=True,
+        description="Enable Skill/Plugin Auditor",
+    )
+    skill_auditor_block_lethal_trifecta: bool = Field(
+        default=True,
+        description="Block skills with file + network + execution permissions",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
