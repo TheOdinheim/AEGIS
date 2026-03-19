@@ -419,6 +419,28 @@ SUPPLY_CHAIN_REJECTIONS = Counter(
     ["component"],
 )
 
+DEPENDENCY_ANALYSIS_FINDINGS = Counter(
+    "aegis_dependency_analysis_findings_total",
+    "Dependency analysis findings by type",
+    ["finding_type"],
+)
+
+REVALIDATION_RUNS = Counter(
+    "aegis_revalidation_runs_total",
+    "Re-validation runs by trigger type",
+    ["trigger"],
+)
+
+REVALIDATION_STATUS_CHANGES = Counter(
+    "aegis_revalidation_status_changes_total",
+    "Re-validation status changes (approved→rejected, etc.)",
+)
+
+REVALIDATION_LAST_RUN = Gauge(
+    "aegis_revalidation_last_run_timestamp",
+    "Timestamp of last re-validation run",
+)
+
 # ---------------------------------------------------------------------------
 # Adaptive rate limiting
 # ---------------------------------------------------------------------------

@@ -95,7 +95,10 @@ aegis/
 │   │   ├── dependency_audit.py      # Stage 3: CVE matching + SBOM generation
 │   │   ├── behavioral_probe.py      # Stage 4: 10 jailbreak probes, sleeper agent detection, divergence
 │   │   ├── provenance_validator.py  # Extension 3.1: MPV — 5-check model provenance (format, registry, hash, metadata injection, namespace)
-│   │   └── skill_auditor.py         # Extension 3.2: SPA — skill/plugin audit (descriptor injection, malicious code, permissions, AST)
+│   │   ├── skill_auditor.py         # Extension 3.2: SPA — skill/plugin audit (descriptor injection, malicious code, permissions, AST)
+│   │   ├── dependency_analyzer.py   # Extension 3.3: DCA — dependency chain analysis (malicious, typosquatting, slopsquatting, risk)
+│   │   ├── validation_cache.py      # Extension 3.4: LRU validation cache with TTL, content-hash, retroactive threat check
+│   │   └── revalidation_scheduler.py # Extension 3.5: Background asyncio re-validation (active/inactive intervals, threat triggers)
 │   ├── multimodal/
 │   │   ├── __init__.py              # MultimodalPreprocessor: image, document, audio orchestrator
 │   │   ├── image_scanner.py         # L2: format validation, OCR, metadata, steganalysis
@@ -144,9 +147,11 @@ aegis/
 │   ├── benign_prompts.json          # 55 benign prompts for clonal selection validation
 │   ├── benchmark_benign.json        # 500 business prompts across 10 industries
 │   ├── benchmark_attacks.json       # 110 labeled attacks across 10 categories
+│   ├── malicious_packages.json      # 28 known-malicious packages (14 PyPI + 14 npm)
+│   ├── popular_packages.json        # ~200 popular packages for typosquatting baseline
 │   ├── stix_feeds/                  # STIX 2.1 indicator feeds (13 seed indicators)
 │   └── opa_policies/                # OPA Rego policies (3-tier: global/tenant/adaptive)
-├── tests/                           # 2684+ tests across 40+ test files
+├── tests/                           # 2739+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -213,6 +218,9 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | GET /v1/agents/communication/stats | Yes | IACM: inter-agent communication monitor stats |
 | POST /v1/supply-chain/validate-provenance | Yes | MPV: 5-check model provenance validation |
 | POST /v1/supply-chain/audit-skill | Yes | SPA: skill/plugin audit (4 checks) |
+| POST /v1/supply-chain/analyze-dependencies | Yes | DCA: dependency chain analysis |
+| POST /v1/supply-chain/revalidate | Yes | Manual re-validation trigger |
+| GET /v1/supply-chain/revalidation/status | Yes | Re-validation scheduler status |
 | GET /v1/admin/deep-health | Yes | Deep health check (6 components) |
 
 ## Running Tests
@@ -225,7 +233,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2684 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2739 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -293,6 +301,12 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_PROVENANCE_BLOCK_UNTRUSTED — block unverified (not just rejected) models (default: false)
 - AEGIS_SKILL_AUDITOR_ENABLED — enable Skill/Plugin Auditor (default: true)
 - AEGIS_SKILL_AUDITOR_BLOCK_LETHAL_TRIFECTA — block file+network+exec skills (default: true)
+- AEGIS_DEPENDENCY_ANALYZER_ENABLED — enable Dependency Chain Analyzer (default: true)
+- AEGIS_SUPPLY_CHAIN_CACHE_MAX_ENTRIES — max cached validation results (default: 1000)
+- AEGIS_SUPPLY_CHAIN_CACHE_DEFAULT_TTL — cache TTL in seconds (default: 3600)
+- AEGIS_REVALIDATION_ENABLED — enable continuous re-validation scheduler (default: true)
+- AEGIS_REVALIDATION_ACTIVE_INTERVAL_HOURS — re-check interval for active components (default: 6.0)
+- AEGIS_REVALIDATION_INACTIVE_INTERVAL_HOURS — re-check interval for inactive components (default: 24.0)
 - REDIS_URL — enables Redis-backed rate limiting and Redis Streams event bus
 - DATABASE_URL — enables persistent audit logging, threat indicators, signatures
 
@@ -330,7 +344,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2684+
+3. All tests must pass before any changes are considered complete — current baseline is 2739+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

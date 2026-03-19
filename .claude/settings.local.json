@@ -152,7 +152,8 @@
       "Bash(python3 -m pytest tests/test_tool_security.py -q --tb=short -p no:warnings 2>&1)",
       "Bash(python3 -m pytest tests/test_cot_defense.py -x -q --tb=short -p no:warnings 2>&1)",
       "Bash(python -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)",
-      "Bash(python3 -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)"
+      "Bash(python3 -m pytest tests/test_provenance_skill.py -x -q --tb=short -p no:warnings 2>&1)",
+      "Bash(python3 -m pytest tests/test_dependency_analyzer.py -x -q --tb=short -p no:warnings 2>&1)"
     ]
   }
 }

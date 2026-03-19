@@ -1,0 +1,35 @@
+{
+  "pypi": [
+    "ctx",
+    "colourama",
+    "python-dateutil-2",
+    "jeIlyfish",
+    "python3-dateutil",
+    "pipsqlite3lib",
+    "coIorama",
+    "discordsafety",
+    "daboratory",
+    "pygaboratory",
+    "requesocks",
+    "python-binance-2",
+    "openai-api-key",
+    "chatgpt-wrapper-malicious"
+  ],
+  "npm": [
+    "event-stream",
+    "ua-parser-js",
+    "colors",
+    "faker",
+    "node-ipc",
+    "es5-ext-malicious",
+    "crossenv",
+    "babelcli",
+    "d3.js",
+    "gruntcli",
+    "mongose",
+    "jquerry",
+    "coffescript",
+    "electron-native-notify"
+  ],
+  "description": "Known malicious packages from documented supply chain incidents. Update periodically."
+}

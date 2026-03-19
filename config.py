@@ -966,6 +966,40 @@ class AegisConfig(BaseSettings):
         description="Block skills with file + network + execution permissions",
     )
 
+    # --- Dependency Chain Analyzer (DCA) — Extension 3.3 ---
+    dependency_analyzer_enabled: bool = Field(
+        default=True,
+        description="Enable Dependency Chain Analyzer",
+    )
+
+    # --- Supply Chain Validation Cache — Extension 3.4 ---
+    supply_chain_cache_max_entries: int = Field(
+        default=10000,
+        ge=100,
+        description="Max cached validation results before LRU eviction",
+    )
+    supply_chain_cache_default_ttl: int = Field(
+        default=604800,
+        ge=3600,
+        description="Default cache TTL in seconds (7 days)",
+    )
+
+    # --- Re-Validation Scheduler — Extension 3.5 ---
+    revalidation_enabled: bool = Field(
+        default=True,
+        description="Enable continuous supply chain re-validation scheduler",
+    )
+    revalidation_active_interval_hours: float = Field(
+        default=6.0,
+        ge=0.5,
+        description="Re-validation interval for active components (hours)",
+    )
+    revalidation_inactive_interval_hours: float = Field(
+        default=24.0,
+        ge=1.0,
+        description="Re-validation interval for inactive components (hours)",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)

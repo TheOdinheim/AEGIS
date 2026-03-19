@@ -27,6 +27,7 @@ disable the cascade.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -142,6 +143,10 @@ from aegis.middleware.metrics import (
     PROVENANCE_VALIDATIONS,
     SKILL_AUDITS,
     SUPPLY_CHAIN_REJECTIONS,
+    DEPENDENCY_ANALYSIS_FINDINGS,
+    REVALIDATION_RUNS,
+    REVALIDATION_STATUS_CHANGES,
+    REVALIDATION_LAST_RUN,
     get_metrics_text,
     track_latency,
 )
@@ -171,6 +176,9 @@ from aegis.models.scan_result import InnateScanReport
 from aegis.layers.output.reasoning_sanitizer import ReasoningTraceSanitizer
 from aegis.layers.supply_chain.provenance_validator import ModelProvenanceValidator
 from aegis.layers.supply_chain.skill_auditor import SkillPluginAuditor
+from aegis.layers.supply_chain.dependency_analyzer import DependencyChainAnalyzer
+from aegis.layers.supply_chain.validation_cache import SupplyChainValidationCache, compute_content_hash
+from aegis.layers.supply_chain.revalidation_scheduler import RevalidationScheduler
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -226,6 +234,9 @@ _cot_length: ReasoningLengthAnomalyDetector | None = None
 _cot_alignment: ReasoningOutputAlignmentValidator | None = None
 _provenance_validator: ModelProvenanceValidator | None = None
 _skill_auditor: SkillPluginAuditor | None = None
+_dependency_analyzer: DependencyChainAnalyzer | None = None
+_sc_validation_cache: SupplyChainValidationCache | None = None
+_revalidation_scheduler: RevalidationScheduler | None = None
 
 
 def _init_layers(
@@ -242,6 +253,7 @@ def _init_layers(
     global _tool_proxy, _tool_policy_engine, _tdiv, _trs, _tcad, _iacm
     global _cot_coherence, _cot_length, _cot_alignment
     global _provenance_validator, _skill_auditor
+    global _dependency_analyzer, _sc_validation_cache, _revalidation_scheduler
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -583,6 +595,31 @@ def _init_layers(
     else:
         _skill_auditor = None
 
+    # Dependency Chain Analyzer — Extension 3.3
+    if _config.dependency_analyzer_enabled:
+        _dependency_analyzer = DependencyChainAnalyzer(
+            malicious_file=data_dir / "malicious_packages.json",
+            popular_file=data_dir / "popular_packages.json",
+        )
+    else:
+        _dependency_analyzer = None
+
+    # Supply Chain Validation Cache — Extension 3.4
+    _sc_validation_cache = SupplyChainValidationCache(
+        max_entries=_config.supply_chain_cache_max_entries,
+        default_ttl=_config.supply_chain_cache_default_ttl,
+    )
+
+    # Re-Validation Scheduler — Extension 3.5
+    if _config.revalidation_enabled:
+        _revalidation_scheduler = RevalidationScheduler(
+            cache=_sc_validation_cache,
+            active_interval_hours=_config.revalidation_active_interval_hours,
+            inactive_interval_hours=_config.revalidation_inactive_interval_hours,
+        )
+    else:
+        _revalidation_scheduler = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -687,6 +724,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _federated:
         _federated.start_scheduler()
 
+    # Start re-validation scheduler (Extension 3.5)
+    if _revalidation_scheduler:
+        await _revalidation_scheduler.start()
+
     # Deep health monitor
     _deep_health = DeepHealthMonitor()
     _deep_health.set_components(
@@ -730,6 +771,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Stop deep health monitor
     if _deep_health:
         _deep_health.stop_monitor()
+
+    # Stop re-validation scheduler
+    if _revalidation_scheduler:
+        await _revalidation_scheduler.stop()
 
     # Stop federated scheduler
     if _federated:
@@ -1383,6 +1428,111 @@ async def supply_chain_audit_skill(request: Request) -> Response:
         ],
         "audit_latency_ms": report.audit_latency_ms,
     })
+
+
+@app.post("/v1/supply-chain/analyze-dependencies")
+async def supply_chain_analyze_dependencies(request: Request) -> Response:
+    """Analyze dependencies for malicious/typosquatted/slopsquatted packages.
+
+    Body: {format: "requirements_txt"|"package_json"|"list", content: str|list}
+    """
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _dependency_analyzer:
+        return JSONResponse(status_code=503, content={"error": "Dependency analyzer not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
+
+    fmt = body.get("format", "")
+    content = body.get("content", "")
+
+    if fmt == "requirements_txt":
+        deps = _dependency_analyzer.parse_requirements_txt(content)
+    elif fmt == "package_json":
+        deps = _dependency_analyzer.parse_package_json(content if isinstance(content, str) else json.dumps(content))
+    elif fmt == "list":
+        if not isinstance(content, list):
+            return JSONResponse(status_code=400, content={"error": "content must be a list for format 'list'"})
+        deps = _dependency_analyzer.parse_dependency_list(content)
+    else:
+        return JSONResponse(status_code=400, content={"error": "format must be 'requirements_txt', 'package_json', or 'list'"})
+
+    report = _dependency_analyzer.analyze(deps, metadata=body.get("metadata"))
+
+    for finding in report.findings:
+        DEPENDENCY_ANALYSIS_FINDINGS.labels(finding_type=finding.finding_type).inc()
+    if report.overall_risk in ("critical", "high"):
+        SUPPLY_CHAIN_REJECTIONS.labels(component="dependency").inc()
+
+    # Cache the result
+    if _sc_validation_cache and content:
+        content_str = content if isinstance(content, str) else json.dumps(content)
+        _sc_validation_cache.cache_result(
+            component_id=f"deps:{hashlib.sha256(content_str.encode()).hexdigest()[:16]}",
+            component_type="dependency",
+            result=report,
+            content_hash=compute_content_hash(content_str),
+            status="approved" if report.overall_risk == "clean" else "flagged" if report.overall_risk in ("low", "medium") else "rejected",
+        )
+
+    return JSONResponse(content={
+        "total_dependencies": report.total_dependencies,
+        "overall_risk": report.overall_risk,
+        "critical_count": report.critical_count,
+        "high_count": report.high_count,
+        "medium_count": report.medium_count,
+        "findings": [
+            {
+                "package_name": f.package_name,
+                "finding_type": f.finding_type,
+                "severity": f.severity,
+                "details": f.details,
+                "similar_to": f.similar_to,
+            }
+            for f in report.findings
+        ],
+        "packages_checked": report.packages_checked,
+        "analysis_latency_ms": report.analysis_latency_ms,
+    })
+
+
+@app.post("/v1/supply-chain/revalidate")
+async def supply_chain_revalidate(request: Request) -> Response:
+    """Trigger immediate supply chain re-validation."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _revalidation_scheduler:
+        return JSONResponse(status_code=503, content={"error": "Re-validation scheduler not initialized"})
+
+    run = await _revalidation_scheduler.trigger_revalidation(trigger="manual")
+
+    REVALIDATION_RUNS.labels(trigger="manual").inc()
+    REVALIDATION_STATUS_CHANGES.inc(run.new_findings)
+    if run.completed_at:
+        REVALIDATION_LAST_RUN.set(run.completed_at)
+
+    return JSONResponse(content={
+        "run_id": run.run_id,
+        "components_checked": run.components_checked,
+        "status_changes": run.status_changes,
+        "new_findings": run.new_findings,
+        "errors": run.errors,
+        "duration_ms": round((run.completed_at - run.started_at) * 1000, 2) if run.completed_at else 0,
+    })
+
+
+@app.get("/v1/supply-chain/revalidation/status")
+async def supply_chain_revalidation_status(request: Request) -> Response:
+    """Get re-validation scheduler status and last run summary."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _revalidation_scheduler:
+        return JSONResponse(status_code=503, content={"error": "Re-validation scheduler not initialized"})
+
+    return JSONResponse(content=_revalidation_scheduler.get_status())
 
 
 # ---------------------------------------------------------------------------
