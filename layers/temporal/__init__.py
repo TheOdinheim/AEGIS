@@ -40,6 +40,18 @@ from aegis.layers.temporal.correlation_engine import (
     CorrelationCandidate,
     CorrelationReport,
 )
+from aegis.layers.temporal.snapshot_manager import (
+    CleanStateSnapshotManager,
+    StateSnapshot,
+    ComponentSnapshot,
+    ComponentDiff,
+    ReplayReport,
+)
+from aegis.layers.temporal.date_scanner import (
+    DateTriggeredAnomalyScanner,
+    BoundaryCheck,
+    DateScannerStatus,
+)
 
 __all__ = [
     "SyntheticTrafficGenerator",
@@ -61,4 +73,12 @@ __all__ = [
     "TemporalCorrelationEngine",
     "CorrelationCandidate",
     "CorrelationReport",
+    "CleanStateSnapshotManager",
+    "StateSnapshot",
+    "ComponentSnapshot",
+    "ComponentDiff",
+    "ReplayReport",
+    "DateTriggeredAnomalyScanner",
+    "BoundaryCheck",
+    "DateScannerStatus",
 ]

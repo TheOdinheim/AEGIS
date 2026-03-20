@@ -886,3 +886,70 @@ Checked lazily on `get_threat_level()`. New escalation events reset the timer. C
 | TestOCRLayout | 8 | Preprocess methods, upscale, downscale, contrast, rotation, extract_text |
 | TestTLIAutoDecay | 7 | Enabled default, 4 level decays, no early decay, disable via env |
 | TestProductionIntegration | 3 | Multilang innate pipeline, benign passes, per-tenant policy |
+
+---
+
+## Extension 6: Campaign Correlation Engine (XBOW Phase A1)
+
+Detects coordinated multi-agent campaigns from distributed fragments. Addresses the XBOW threat model where autonomous adversarial platforms decompose attacks into narrowly-scoped parallel solver agents that individually appear benign but collectively constitute a campaign.
+
+### Architecture
+
+Three components work together:
+
+1. **FingerprintDetector** — Sliding-window statistical analysis on aggregate event populations
+2. **CampaignGraph** — Lightweight directed graph (adjacency list, no NetworkX) tracking agent relationships
+3. **CampaignCorrelationEngine** — Orchestrator feeding events to both detector and graph, generating alerts
+
+### Five Fingerprint Signatures
+
+| Signature | Method | Threshold | Detection |
+|-----------|--------|-----------|-----------|
+| Temporal Clustering | CV on inter-arrival times | CV < 0.5, N ≥ 10 agents | Coordinated bursts on same target |
+| Systematic Enumeration | Resource coverage ratio | Coverage ≥ 0.6 of known space | Sequential probing of endpoints |
+| Parameter Fuzzing | Shannon entropy | Entropy > baseline + 2σ | Diverse parameter testing |
+| Recon-to-Exploit | Phase transition score | Transition ≥ 0.7 | Action type progression |
+| Information Flow | output_hash→input_hash chains | Chain ≥ 3 links | Coordinator-solver data flow |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `layers/correlation/__init__.py` | Package init, public API exports |
+| `layers/correlation/events.py` | AgentActionEvent, CampaignAlert, ActionType, FingerprintType, AlertLevel |
+| `layers/correlation/campaign_graph.py` | CampaignGraph with 4 edge types, pruning, connected components |
+| `layers/correlation/fingerprint_detector.py` | FingerprintDetector with 5 signatures, FingerprintMatch |
+| `layers/correlation/engine.py` | CampaignCorrelationEngine orchestrator |
+
+### Config Fields (11)
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `campaign_correlation_enabled` | true | Master enable |
+| `campaign_window_sizes` | [10, 30, 60] | Sliding window sizes (seconds) |
+| `campaign_temporal_cluster_cv_threshold` | 0.5 | CV threshold for temporal clustering |
+| `campaign_temporal_cluster_min_agents` | 10 | Min distinct agents for temporal |
+| `campaign_enumeration_coverage_threshold` | 0.6 | Coverage ratio for enumeration |
+| `campaign_fuzzing_entropy_std_threshold` | 2.0 | Entropy σ multiplier for fuzzing |
+| `campaign_recon_exploit_transition_threshold` | 0.7 | Phase transition score threshold |
+| `campaign_info_flow_min_links` | 3 | Min hash chain links |
+| `campaign_alert_threshold` | 0.7 | Min confidence for alert |
+| `campaign_escalation_threshold` | 0.85 | Confidence for HIGH alert |
+| `campaign_graph_retention_seconds` | 300 | Graph event retention |
+
+### Event Bus Integration
+
+Reuses existing `threat_detected` channel (no new channels). Campaign alerts publish with `payload.type == "campaign_alert"`. `len(ALL_CHANNELS) == 7` invariant preserved.
+
+### Tests (55 tests across 4 files)
+
+| File | Classes | Tests | Validates |
+|------|---------|-------|-----------|
+| `test_correlation_events.py` | 3 | 11 | Event/alert models, serialization, enums, event bus pub/sub |
+| `test_fingerprint_detector.py` | 6 | 16 | All 5 signatures (TP + TN), Shannon entropy, multi-window |
+| `test_campaign_graph.py` | 4 | 14 | Graph construction, 4 edge types, components, pruning, serialization |
+| `test_correlation_engine.py` | 5 | 14 | XBOW simulation, legitimate traffic, degradation, alert levels |
+
+### Total Test Count
+
+2998 passing (2943 baseline + 55 new), 8 skipped.

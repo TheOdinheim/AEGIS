@@ -125,7 +125,9 @@ aegis/
 │   │   ├── baseline_engine.py       # BBE: 6-metric behavioral baseline, 3-tier calibration, drift alerts
 │   │   ├── canary_system.py         # Canary injection: known-answer probes, keyword+semantic eval, BBE integration
 │   │   ├── provenance_registry.py  # MPR: append-only state change tracking (4 categories), FIFO eviction
-│   │   └── correlation_engine.py   # TCE: multi-factor temporal correlation, auto-trigger on critical drift
+│   │   ├── correlation_engine.py   # TCE: multi-factor temporal correlation, auto-trigger on critical drift
+│   │   ├── snapshot_manager.py     # Clean State Snapshot: hash-based state capture, replay comparison
+│   │   └── date_scanner.py         # Date-triggered anomaly: sleeper agent detection at temporal boundaries
 │   └── agent_security/
 │       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
 │       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
@@ -234,6 +236,10 @@ Backing services (Redis, PostgreSQL): Both optional — AEGIS degrades gracefull
 | GET /v1/temporal/provenance/stats | Yes | MPR: registry statistics |
 | POST /v1/temporal/correlate | Yes | TCE: correlate anomaly against provenance timeline |
 | GET /v1/temporal/correlation/reports | Yes | TCE: recent correlation reports |
+| POST /v1/temporal/snapshot | Yes | Capture state snapshot (hash-based) |
+| GET /v1/temporal/snapshots | Yes | List recent snapshots |
+| POST /v1/temporal/replay | Yes | Replay comparison against historical snapshot |
+| GET /v1/temporal/date-scanner/status | Yes | Date-triggered anomaly scanner status |
 | POST /v1/supply-chain/analyze-dependencies | Yes | DCA: dependency chain analysis |
 | POST /v1/supply-chain/revalidate | Yes | Manual re-validation trigger |
 | GET /v1/supply-chain/revalidation/status | Yes | Re-validation scheduler status |
@@ -249,7 +255,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-19)
 
-- Tests: 2895 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 2943 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
@@ -340,6 +346,14 @@ All configuration via environment variables prefixed AEGIS_ or via AegisConfig i
 - AEGIS_TCE_DEFAULT_CORRELATION_WINDOW_HOURS — lookback window for correlation (default: 72.0)
 - AEGIS_TCE_MAX_CANDIDATES — max top candidates per correlation report (default: 5)
 - AEGIS_TCE_AUTO_CORRELATE_ON_CRITICAL — auto-correlate on critical drift/canary events (default: true)
+- AEGIS_SNAPSHOT_ENABLED — enable Clean State Snapshot Manager (default: true)
+- AEGIS_SNAPSHOT_MAX_COUNT — max snapshots in ring buffer (default: 90)
+- AEGIS_SNAPSHOT_INTERVAL_HOURS — periodic snapshot interval (default: 24.0)
+- AEGIS_DATE_SCANNER_ENABLED — enable Date-Triggered Anomaly Scanner (default: true)
+- AEGIS_DATE_SCANNER_PRE_WINDOW_HOURS — pre-boundary sampling window (default: 6.0)
+- AEGIS_DATE_SCANNER_POST_WINDOW_HOURS — post-boundary sampling window (default: 2.0)
+- AEGIS_DATE_SCANNER_DIVERGENCE_THRESHOLD — single-metric alert threshold (default: 0.3)
+- AEGIS_DATE_SCANNER_MULTI_METRIC_THRESHOLD — multi-metric alert threshold (default: 0.15)
 - AEGIS_DEPENDENCY_ANALYZER_ENABLED — enable Dependency Chain Analyzer (default: true)
 - AEGIS_SUPPLY_CHAIN_CACHE_MAX_ENTRIES — max cached validation results (default: 1000)
 - AEGIS_SUPPLY_CHAIN_CACHE_DEFAULT_TTL — cache TTL in seconds (default: 3600)
@@ -383,7 +397,7 @@ Key paths: `/app/aegis/` (code), `/opt/models/` (ML models), `/app/aegis/logs/` 
 
 1. NEVER delete CLAUDE.md — this is the project's institutional memory
 2. Fail-closed everywhere — if a security layer fails, block the request (503), never pass through
-3. All tests must pass before any changes are considered complete — current baseline is 2895+
+3. All tests must pass before any changes are considered complete — current baseline is 2943+
 4. Benchmark thresholds: FPR < 1.0%, TPR >= 85%, no single industry FPR > 3%
 5. Unicode normalize before regex — all text through normalize_text() before pattern matching
 6. Auth required on sensitive endpoints — /metrics, /v1/audit/recent, /v1/vault/stats require valid Bearer token

@@ -157,6 +157,10 @@ from aegis.middleware.metrics import (
     PROVENANCE_EVENTS_TOTAL,
     CORRELATIONS_TOTAL,
     CORRELATION_LATENCY,
+    SNAPSHOTS_TOTAL,
+    REPLAY_COMPARISONS_TOTAL,
+    DATE_BOUNDARY_CHECKS_TOTAL,
+    DATE_BOUNDARY_ALERTS_TOTAL,
     get_metrics_text,
     track_latency,
 )
@@ -194,6 +198,9 @@ from aegis.layers.temporal.baseline_engine import BehavioralBaselineEngine, Base
 from aegis.layers.temporal.canary_system import CanaryInjectionSystem
 from aegis.layers.temporal.provenance_registry import MemoryProvenanceRegistry, ProvenanceCategory
 from aegis.layers.temporal.correlation_engine import TemporalCorrelationEngine
+from aegis.layers.temporal.snapshot_manager import CleanStateSnapshotManager
+from aegis.layers.temporal.date_scanner import DateTriggeredAnomalyScanner
+from aegis.layers.correlation.engine import CampaignCorrelationEngine
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -257,6 +264,9 @@ _bbe: BehavioralBaselineEngine | None = None
 _canary_system: CanaryInjectionSystem | None = None
 _mpr: MemoryProvenanceRegistry | None = None
 _tce: TemporalCorrelationEngine | None = None
+_snapshot_manager: CleanStateSnapshotManager | None = None
+_date_scanner: DateTriggeredAnomalyScanner | None = None
+_campaign_engine: CampaignCorrelationEngine | None = None
 
 
 def _init_layers(
@@ -275,6 +285,7 @@ def _init_layers(
     global _provenance_validator, _skill_auditor
     global _dependency_analyzer, _sc_validation_cache, _revalidation_scheduler
     global _traffic_generator, _bbe, _canary_system, _mpr, _tce
+    global _snapshot_manager, _date_scanner, _campaign_engine
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -701,6 +712,67 @@ def _init_layers(
     else:
         _tce = None
 
+    # Clean State Snapshot Manager — Extension 2 Phase C Step 4
+    if _config.snapshot_enabled:
+        _snapshot_manager = CleanStateSnapshotManager(
+            max_snapshots=_config.snapshot_max_count,
+        )
+        # Register available components
+        if _vault:
+            _snapshot_manager.register_component(
+                "threat_vault",
+                hash_fn=lambda: _vault.get_stats().get("index_hash", "unknown"),
+                count_fn=lambda: _vault.get_stats().get("total_indicators", 0),
+            )
+        if _config:
+            import json as _json
+            _snapshot_manager.register_component(
+                "config",
+                hash_fn=lambda: hashlib.sha256(
+                    _json.dumps(sorted(_config.model_dump(exclude={"upstream_api_key", "api_key"}).items()), default=str).encode()
+                ).hexdigest(),
+            )
+        if _innate and hasattr(_innate, '_scanners'):
+            _snapshot_manager.register_component(
+                "pattern_library",
+                hash_fn=lambda: hashlib.sha256(str(len(getattr(_innate, '_scanners', []))).encode()).hexdigest(),
+                count_fn=lambda: len(getattr(_innate, '_scanners', [])),
+            )
+        if _canary_system:
+            _snapshot_manager.set_canary_system(_canary_system)
+    else:
+        _snapshot_manager = None
+
+    # Date-Triggered Anomaly Scanner — Extension 2 Phase C Step 4
+    if _config.date_scanner_enabled:
+        _date_scanner = DateTriggeredAnomalyScanner(
+            pre_window_hours=_config.date_scanner_pre_window_hours,
+            post_window_hours=_config.date_scanner_post_window_hours,
+            divergence_threshold=_config.date_scanner_divergence_threshold,
+            multi_metric_threshold=_config.date_scanner_multi_metric_threshold,
+        )
+        if _bbe:
+            _date_scanner.set_bbe(_bbe)
+    else:
+        _date_scanner = None
+
+    # Campaign Correlation Engine — Extension 6 (XBOW Phase A1)
+    if _config.campaign_correlation_enabled:
+        _campaign_engine = CampaignCorrelationEngine(
+            window_sizes=_config.campaign_window_sizes,
+            temporal_cluster_cv_threshold=_config.campaign_temporal_cluster_cv_threshold,
+            temporal_cluster_min_agents=_config.campaign_temporal_cluster_min_agents,
+            enumeration_coverage_threshold=_config.campaign_enumeration_coverage_threshold,
+            fuzzing_entropy_std_threshold=_config.campaign_fuzzing_entropy_std_threshold,
+            recon_exploit_transition_threshold=_config.campaign_recon_exploit_transition_threshold,
+            info_flow_min_links=_config.campaign_info_flow_min_links,
+            campaign_alert_threshold=_config.campaign_alert_threshold,
+            campaign_escalation_threshold=_config.campaign_escalation_threshold,
+            graph_retention_seconds=_config.campaign_graph_retention_seconds,
+        )
+    else:
+        _campaign_engine = None
+
     # Audit logger
     _audit = get_audit_logger()
 
@@ -787,6 +859,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _mpr._event_bus = _event_bus
     if _tce:
         _tce._event_bus = _event_bus
+    if _snapshot_manager:
+        _snapshot_manager._event_bus = _event_bus
+    if _date_scanner:
+        _date_scanner._event_bus = _event_bus
+    if _campaign_engine:
+        _campaign_engine._event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -852,6 +930,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _canary_system._inject_fn = _canary_inject_fn
         await _canary_system.start_scheduler()
 
+    # Start snapshot scheduler (Extension 2 Phase C Step 4)
+    if _snapshot_manager and _config:
+        await _snapshot_manager.start_scheduler(interval_hours=_config.snapshot_interval_hours)
+
+    # Start date scanner scheduler (Extension 2 Phase C Step 4)
+    if _date_scanner:
+        await _date_scanner.start_scheduler()
+
+    # Start campaign correlation engine (Extension 6)
+    if _campaign_engine:
+        await _campaign_engine.start()
+
     # Deep health monitor
     _deep_health = DeepHealthMonitor()
     _deep_health.set_components(
@@ -899,6 +989,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Stop canary injection scheduler
     if _canary_system:
         await _canary_system.stop_scheduler()
+
+    # Stop snapshot scheduler
+    if _snapshot_manager:
+        await _snapshot_manager.stop_scheduler()
+
+    # Stop date scanner scheduler
+    if _date_scanner:
+        await _date_scanner.stop_scheduler()
+
+    # Stop campaign correlation engine
+    if _campaign_engine:
+        await _campaign_engine.stop()
 
     # Stop re-validation scheduler
     if _revalidation_scheduler:
@@ -1915,6 +2017,136 @@ async def temporal_correlation_reports(request: Request) -> Response:
             for r in reports
         ],
         "total": len(reports),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Snapshot & Date Scanner Endpoints (Extension 2 Phase C Step 4)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/v1/temporal/snapshot")
+async def temporal_snapshot(request: Request) -> Response:
+    """Manually trigger a state snapshot."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _snapshot_manager:
+        return JSONResponse(status_code=503, content={"error": "Snapshot Manager not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    trigger = body.get("trigger", "manual")
+    tenant_id = body.get("tenant_id", "default")
+    metadata = body.get("metadata", {})
+
+    snapshot = _snapshot_manager.capture_snapshot(
+        tenant_id=tenant_id, trigger=trigger, metadata=metadata,
+    )
+    SNAPSHOTS_TOTAL.labels(trigger=trigger).inc()
+
+    return JSONResponse(content={
+        "snapshot_id": snapshot.snapshot_id,
+        "timestamp": snapshot.timestamp,
+        "trigger": snapshot.trigger,
+        "components": {
+            name: {
+                "content_hash": cs.content_hash[:16] + "...",
+                "record_count": cs.record_count,
+            }
+            for name, cs in snapshot.components.items()
+        },
+        "integrity_hash": snapshot.integrity_hash[:16] + "...",
+    })
+
+
+@app.get("/v1/temporal/snapshots")
+async def temporal_snapshots(request: Request) -> Response:
+    """List recent snapshots."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _snapshot_manager:
+        return JSONResponse(status_code=503, content={"error": "Snapshot Manager not initialized"})
+
+    tenant_id = request.query_params.get("tenant_id", "default")
+    limit = int(request.query_params.get("limit", "10"))
+
+    snapshots = _snapshot_manager.get_snapshots(tenant_id=tenant_id, limit=limit)
+    return JSONResponse(content={
+        "snapshots": [
+            {
+                "snapshot_id": s.snapshot_id,
+                "timestamp": s.timestamp,
+                "trigger": s.trigger,
+                "component_count": len(s.components),
+                "integrity_hash": s.integrity_hash[:16] + "...",
+            }
+            for s in snapshots
+        ],
+        "total": len(snapshots),
+    })
+
+
+@app.post("/v1/temporal/replay")
+async def temporal_replay(request: Request) -> Response:
+    """Trigger replay comparison for a snapshot."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _snapshot_manager:
+        return JSONResponse(status_code=503, content={"error": "Snapshot Manager not initialized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON body"})
+    if not body or "snapshot_id" not in body:
+        return JSONResponse(status_code=400, content={"error": "snapshot_id required"})
+
+    snapshot_id = body["snapshot_id"]
+    canary_queries = body.get("canary_queries")
+
+    report = await _snapshot_manager.replay_comparison(
+        before_snapshot_id=snapshot_id, canary_queries=canary_queries,
+    )
+    REPLAY_COMPARISONS_TOTAL.inc()
+
+    return JSONResponse(content={
+        "report_id": report.report_id,
+        "before_snapshot_id": report.before_snapshot_id,
+        "before_timestamp": report.before_timestamp,
+        "current_timestamp": report.current_timestamp,
+        "components_changed": [
+            {
+                "component_name": d.component_name,
+                "before_count": d.before_count,
+                "current_count": d.current_count,
+                "change_summary": d.change_summary,
+            }
+            for d in report.components_changed
+        ],
+        "components_unchanged": report.components_unchanged,
+        "behavioral_divergence_detected": report.behavioral_divergence_detected,
+        "analysis_latency_ms": round(report.analysis_latency_ms, 2),
+    })
+
+
+@app.get("/v1/temporal/date-scanner/status")
+async def temporal_date_scanner_status(request: Request) -> Response:
+    """Get date scanner status."""
+    if not _is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    if not _date_scanner:
+        return JSONResponse(status_code=503, content={"error": "Date Scanner not initialized"})
+
+    status = _date_scanner.get_status()
+    return JSONResponse(content={
+        "enabled": status.enabled,
+        "monitored_boundaries": status.monitored_boundaries,
+        "custom_trigger_dates": status.custom_trigger_dates,
+        "checks_performed": status.checks_performed,
+        "alerts_generated": status.alerts_generated,
+        "last_check_timestamp": status.last_check_timestamp,
     })
 
 

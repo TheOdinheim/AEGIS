@@ -1111,6 +1111,106 @@ class AegisConfig(BaseSettings):
         default=True,
         description="Auto-trigger correlation on critical drift/canary alerts",
     )
+    snapshot_enabled: bool = Field(
+        default=True,
+        description="Enable Clean State Snapshot Manager",
+    )
+    snapshot_max_count: int = Field(
+        default=90,
+        ge=5,
+        description="Maximum snapshots in ring buffer (90 = daily for 90 days)",
+    )
+    snapshot_interval_hours: float = Field(
+        default=24.0,
+        ge=0.5,
+        description="Periodic snapshot capture interval in hours",
+    )
+    date_scanner_enabled: bool = Field(
+        default=True,
+        description="Enable Date-Triggered Anomaly Scanner",
+    )
+    date_scanner_pre_window_hours: float = Field(
+        default=6.0,
+        ge=0.5,
+        description="Hours before boundary to sample for pre-boundary baseline",
+    )
+    date_scanner_post_window_hours: float = Field(
+        default=2.0,
+        ge=0.5,
+        description="Hours after boundary to sample for post-boundary behavior",
+    )
+    date_scanner_divergence_threshold: float = Field(
+        default=0.3,
+        ge=0.05,
+        le=1.0,
+        description="Single-metric relative change threshold for alert (30%)",
+    )
+    date_scanner_multi_metric_threshold: float = Field(
+        default=0.15,
+        ge=0.05,
+        le=1.0,
+        description="Multi-metric threshold — alert if 3+ metrics exceed this",
+    )
+
+    # --- Campaign Correlation Engine (Extension 6 — XBOW Phase A1) ---
+    campaign_correlation_enabled: bool = Field(
+        default=True,
+        description="Enable Campaign Correlation Engine",
+    )
+    campaign_window_sizes: list[int] = Field(
+        default_factory=lambda: [10, 30, 60],
+        description="Sliding window sizes in seconds for fingerprint detection",
+    )
+    campaign_temporal_cluster_cv_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Coefficient of variation threshold for temporal clustering",
+    )
+    campaign_temporal_cluster_min_agents: int = Field(
+        default=10,
+        ge=2,
+        description="Minimum distinct agents for temporal cluster detection",
+    )
+    campaign_enumeration_coverage_threshold: float = Field(
+        default=0.6,
+        ge=0.1,
+        le=1.0,
+        description="Resource space coverage fraction for enumeration detection",
+    )
+    campaign_fuzzing_entropy_std_threshold: float = Field(
+        default=2.0,
+        ge=0.5,
+        description="Standard deviations above entropy baseline for fuzzing detection",
+    )
+    campaign_recon_exploit_transition_threshold: float = Field(
+        default=0.7,
+        ge=0.3,
+        le=1.0,
+        description="Phase transition score threshold for recon-to-exploit detection",
+    )
+    campaign_info_flow_min_links: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum output→input hash chain links for info flow detection",
+    )
+    campaign_alert_threshold: float = Field(
+        default=0.7,
+        ge=0.1,
+        le=1.0,
+        description="Fingerprint confidence threshold for generating campaign alerts",
+    )
+    campaign_escalation_threshold: float = Field(
+        default=0.85,
+        ge=0.5,
+        le=1.0,
+        description="Campaign confidence threshold for TLI escalation",
+    )
+    campaign_graph_retention_seconds: int = Field(
+        default=300,
+        ge=30,
+        description="Campaign graph node retention in seconds (5 min default)",
+    )
 
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)

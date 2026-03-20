@@ -587,6 +587,32 @@ CORRELATION_LATENCY = Histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Snapshot & date scanner metrics
+# ---------------------------------------------------------------------------
+
+SNAPSHOTS_TOTAL = Counter(
+    "aegis_snapshots_total",
+    "State snapshots captured by trigger type",
+    ["trigger"],
+)
+
+REPLAY_COMPARISONS_TOTAL = Counter(
+    "aegis_replay_comparisons_total",
+    "Replay comparisons performed",
+)
+
+DATE_BOUNDARY_CHECKS_TOTAL = Counter(
+    "aegis_date_boundary_checks_total",
+    "Date boundary checks performed by boundary type",
+    ["boundary_type"],
+)
+
+DATE_BOUNDARY_ALERTS_TOTAL = Counter(
+    "aegis_date_boundary_alerts_total",
+    "Date boundary alerts generated",
+)
+
+# ---------------------------------------------------------------------------
 # Build info
 # ---------------------------------------------------------------------------
 
