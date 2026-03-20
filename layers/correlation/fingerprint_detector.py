@@ -87,6 +87,33 @@ class FingerprintDetector:
         self._entropy_history: list[float] = []
         self._entropy_max_history = 100
 
+        # Baseline freeze state (Extension 7)
+        self._frozen = False
+        self._frozen_entropy_history: list[float] | None = None
+
+    def freeze_baselines(self) -> None:
+        """Freeze adaptive baselines at current values.
+
+        Called when a campaign alert fires to prevent attacker-driven
+        threshold pollution during active campaigns.
+        """
+        if not self._frozen:
+            self._frozen = True
+            self._frozen_entropy_history = list(self._entropy_history)
+            logger.info("Baselines frozen (entropy_history len=%d)", len(self._entropy_history))
+
+    def unfreeze_baselines(self) -> None:
+        """Resume normal adaptive baseline updates."""
+        if self._frozen:
+            self._frozen = False
+            self._frozen_entropy_history = None
+            logger.info("Baselines unfrozen")
+
+    @property
+    def is_frozen(self) -> bool:
+        """Whether adaptive baselines are currently frozen."""
+        return self._frozen
+
     def add_event(self, event: AgentActionEvent) -> list[FingerprintMatch]:
         """Add an event and check all fingerprint signatures. Returns matches."""
         self._events.append(event)
@@ -257,16 +284,20 @@ class FingerprintDetector:
             # Compute Shannon entropy
             entropy = self._shannon_entropy(param_values)
 
-            # Check against baseline
-            self._entropy_history.append(entropy)
-            if len(self._entropy_history) > self._entropy_max_history:
-                self._entropy_history = self._entropy_history[-self._entropy_max_history:]
+            # Check against baseline (use frozen snapshot if frozen)
+            if not self._frozen:
+                self._entropy_history.append(entropy)
+                if len(self._entropy_history) > self._entropy_max_history:
+                    self._entropy_history = self._entropy_history[-self._entropy_max_history:]
 
-            if len(self._entropy_history) >= 5:
-                mean_entropy = sum(self._entropy_history) / len(self._entropy_history)
+            # Use frozen history for threshold when frozen
+            history = self._frozen_entropy_history if self._frozen and self._frozen_entropy_history else self._entropy_history
+
+            if len(history) >= 5:
+                mean_entropy = sum(history) / len(history)
                 std_entropy = (
-                    sum((x - mean_entropy) ** 2 for x in self._entropy_history)
-                    / len(self._entropy_history)
+                    sum((x - mean_entropy) ** 2 for x in history)
+                    / len(history)
                 ) ** 0.5
                 threshold = mean_entropy + self._entropy_std_threshold * max(std_entropy, 0.1)
             else:

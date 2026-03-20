@@ -31,6 +31,16 @@ from aegis.layers.correlation.fingerprint_detector import (
 )
 from aegis.layers.correlation.campaign_graph import CampaignGraph
 from aegis.layers.correlation.engine import CampaignCorrelationEngine
+from aegis.layers.correlation.intent_features import (
+    IntentFeatureExtractor,
+    IntentFeatureVector,
+)
+from aegis.layers.correlation.intent_classifier import IntentClassifier
+from aegis.layers.correlation.intent_alert import (
+    IntentCategory,
+    IntentClassification,
+    IntentAlert,
+)
 
 __all__ = [
     "ActionType",
@@ -42,4 +52,10 @@ __all__ = [
     "FingerprintMatch",
     "CampaignGraph",
     "CampaignCorrelationEngine",
+    "IntentFeatureExtractor",
+    "IntentFeatureVector",
+    "IntentClassifier",
+    "IntentCategory",
+    "IntentClassification",
+    "IntentAlert",
 ]

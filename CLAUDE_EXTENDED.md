@@ -950,6 +950,82 @@ Reuses existing `threat_detected` channel (no new channels). Campaign alerts pub
 | `test_campaign_graph.py` | 4 | 14 | Graph construction, 4 edge types, components, pruning, serialization |
 | `test_correlation_engine.py` | 5 | 14 | XBOW simulation, legitimate traffic, degradation, alert levels |
 
-### Total Test Count
+### Total Test Count (after Extension 6)
 
 2998 passing (2943 baseline + 55 new), 8 skipped.
+
+---
+
+## Extension 7: Intent Detection Engine (XBOW Phase A2)
+
+Adds intent-based detection — classifying sequences of agent actions by operational intent regardless of behavioral style. Detects model alloy evasion (mid-sequence LLM swaps). With A1 + A2, AEGIS detects coordinated campaigns AND classifies what they're trying to accomplish.
+
+### Architecture
+
+Three new components + updates to A1 components:
+
+1. **IntentFeatureExtractor** — Extracts 8 statistical features from event windows
+2. **IntentClassifier** — Rule-based classifier with ML-compatible interface
+3. **IntentAlert/IntentClassification** — Alert and classification models
+
+### 8-Dimension Feature Space
+
+| Feature | Type | Detection |
+|---------|------|-----------|
+| Target Entropy | float | Breadth of resource targeting (Shannon entropy) |
+| Action Type Distribution | dict | Proportion of each ActionType |
+| Technique Diversity | float | Unique (action, target) pairs / total events |
+| Temporal Regularity | float | CV of inter-event intervals |
+| Progression Score | float | Recon→exploit phase transition (-1 to +1) |
+| Information Flow Density | float | Hash chain density (coordinator-solver) |
+| Agent Cardinality | int | Distinct agent count |
+| Stylistic Discontinuity | float | Model alloy detection (LLM swap frequency) |
+
+### 6 Intent Categories
+
+| Category | Pattern |
+|----------|---------|
+| SYSTEMATIC_ENUMERATION | High entropy, high diversity, many agents, low regularity |
+| BOUNDARY_PROBING | Oscillating progression, high auth ratio, moderate diversity |
+| VULNERABILITY_CONFIRMATION | Low diversity, focused targets, few agents |
+| DATA_EXFILTRATION_STAGING | High DATA_ACCESS, high info flow, positive progression |
+| PRIVILEGE_ESCALATION_PROBING | High auth ratio, escalating progression, broad targets |
+| BENIGN_ACTIVITY | Default / high temporal variance with no progression |
+
+### Alloy Amplification
+
+When `stylistic_discontinuity > 0.3` and category is not BENIGN, confidence is multiplied by `1.0 + discontinuity * 0.5` (capped at 1.0). Multi-model adversary tooling amplifies attack signal.
+
+### Adaptive Baseline Freeze
+
+FingerprintDetector gains `freeze_baselines()` / `unfreeze_baselines()` methods. When a campaign alert fires, the engine freezes adaptive thresholds (entropy history) to prevent attacker-driven baseline pollution. Fixes the A1 entropy inflation bug.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `layers/correlation/intent_features.py` | IntentFeatureExtractor, IntentFeatureVector (8 features) |
+| `layers/correlation/intent_classifier.py` | IntentClassifier (rule-based, ML-interface-compatible) |
+| `layers/correlation/intent_alert.py` | IntentCategory, IntentClassification, IntentAlert models |
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `layers/correlation/events.py` | Added optional `intent` field to CampaignAlert |
+| `layers/correlation/fingerprint_detector.py` | Added freeze_baselines/unfreeze_baselines, is_frozen property |
+| `layers/correlation/engine.py` | Integrated intent classification, baseline freeze, classify_events() |
+| `layers/correlation/__init__.py` | Exported new types |
+
+### Tests (44 tests across 4 files)
+
+| File | Classes | Tests | Validates |
+|------|---------|-------|-----------|
+| `test_intent_features.py` | 9 | 16 | All 8 features, sliding window, edge cases |
+| `test_intent_classifier.py` | 8 | 12 | 6 intent categories, alloy amplification, sequence classification |
+| `test_baseline_freeze.py` | 2 | 6 | Freeze/unfreeze, engine integration, detection stability |
+| `test_intent_integration.py` | 4 | 10 | XBOW+intent, benign traffic, alloy campaign, freeze during campaign |
+
+### Total Test Count
+
+3042 passing (2998 baseline + 44 new), 8 skipped.

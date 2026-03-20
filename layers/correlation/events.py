@@ -75,3 +75,5 @@ class CampaignAlert(BaseModel):
     recommended_action: str = "investigate"
     evidence: dict[str, Any] = Field(default_factory=dict)
     tenant_id: str = "default"
+    # Extension 7: Intent classification (populated when intent engine is active)
+    intent: Any | None = None

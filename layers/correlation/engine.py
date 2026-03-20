@@ -26,6 +26,9 @@ from aegis.layers.correlation.events import (
 )
 from aegis.layers.correlation.fingerprint_detector import FingerprintDetector
 from aegis.layers.correlation.campaign_graph import CampaignGraph
+from aegis.layers.correlation.intent_features import IntentFeatureExtractor
+from aegis.layers.correlation.intent_classifier import IntentClassifier
+from aegis.layers.correlation.intent_alert import IntentCategory, IntentClassification
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,10 @@ class CampaignCorrelationEngine:
         self._graph = CampaignGraph(
             retention_seconds=graph_retention_seconds,
         )
+
+        # Extension 7: Intent detection components
+        self._feature_extractor = IntentFeatureExtractor()
+        self._intent_classifier = IntentClassifier()
 
         # Track active campaigns
         self._active_campaigns: dict[str, CampaignAlert] = {}
@@ -164,11 +171,31 @@ class CampaignCorrelationEngine:
                 tenant_id=event.tenant_id,
             )
 
+            # Extension 7: Run intent classification on contributing events
+            try:
+                contributing_events = [
+                    e for e in self._detector._events
+                    if e.agent_id in agent_ids
+                ]
+                if contributing_events:
+                    intent_cls = self._classify_intent(contributing_events)
+                    if (
+                        intent_cls.confidence > 0.7
+                        and intent_cls.category != IntentCategory.BENIGN_ACTIVITY
+                    ):
+                        alert.intent = intent_cls
+            except Exception as e:
+                logger.debug("Intent classification failed: %s", e)
+
             alerts.append(alert)
             self._alerts_generated += 1
             self._alert_history.append(alert)
             if len(self._alert_history) > self._max_history:
                 self._alert_history = self._alert_history[-self._max_history:]
+
+            # Extension 7: Freeze baselines during active campaigns
+            if not self._detector.is_frozen:
+                self._detector.freeze_baselines()
 
             logger.warning(
                 "Campaign alert: type=%s, confidence=%.2f, agents=%d, action=%s",
@@ -207,6 +234,20 @@ class CampaignCorrelationEngine:
     def get_recent_alerts(self, limit: int = 20) -> list[CampaignAlert]:
         """Get recent campaign alerts."""
         return list(reversed(self._alert_history[-limit:]))
+
+    def classify_events(self, events: list[AgentActionEvent]) -> IntentClassification:
+        """Classify intent of a sequence of events (direct programmatic use)."""
+        return self._classify_intent(events)
+
+    def _classify_intent(self, events: list[AgentActionEvent]) -> IntentClassification:
+        """Internal: extract features and classify intent."""
+        vectors = self._feature_extractor.extract_sliding(events)
+        if not vectors:
+            features = self._feature_extractor.extract(events)
+            return self._intent_classifier.classify(features)
+        if len(vectors) == 1:
+            return self._intent_classifier.classify(vectors[0])
+        return self._intent_classifier.classify_sequence(vectors)
 
     @property
     def detector(self) -> FingerprintDetector:
