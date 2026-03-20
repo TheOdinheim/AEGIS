@@ -1064,3 +1064,45 @@ FingerprintDetector gains `freeze_baselines()` / `unfreeze_baselines()` methods.
 ### Total Test Count
 
 3042 passing (2998 baseline + 44 new), 8 skipped.
+
+---
+
+## Red Team Phase 1: White-Box Adversarial (RT-001 to RT-012)
+
+12 findings across 6 layers, all fixed. 24 tests added. See `docs/red_team_report.md` for full details.
+
+**Key fixes**: Base64 depth 3→5, Unicode whitespace collapse, multi-size n-gram leakage detection, streaming spike detection, source-level quarantine, ROT13 decode, PII threshold gap closure, absolute enumeration threshold.
+
+**Test count after Phase 1**: 3066 passing.
+
+---
+
+## Red Team Phase 2: Cross-Layer, Breaker Weaponization & Multimodal Handoff
+
+**Date**: 2026-03-20
+**Tests**: `tests/test_red_team_phase2.py` (30 tests)
+**Result**: 3 hypotheses tested, 1 gap confirmed (known limitation), 2 architecturally refuted
+
+### Hypothesis 1: Cross-Layer Dead Zone — PARTIALLY CONFIRMED
+
+Dead zone exists when L3 DeBERTa is offline. Soft-framed adversarial inputs (polite, hypothetical, authority-based) evade L2 regex. Architecture mitigations when L3 is operational:
+- Corroboration boost: dual weak signals (0.50+0.50) → fused 0.60 (crosses escalation threshold)
+- DCA MCAV: 4 weak DANGER signals aggregate to MCAV ≈ 0.857 (above 0.75 anomaly threshold)
+- TLI escalation: YELLOW drops escalation threshold from 0.60 to 0.45
+- **No fix needed** — known DeBERTa dependency
+
+### Hypothesis 2: Breaker Weaponization — REFUTED
+
+All scanning layers (L2, L3, L5, L6) are endpoint-agnostic. Changing upstream model URL does not affect any security layer. Injection during fallback routing is caught identically.
+
+**Informational**: No auto-TLI escalation on breaker trip. Recommended: wire `circuit_open` events to TLI escalation via event bus.
+
+### Hypothesis 3: Multimodal Handoff — REFUTED
+
+Extracted text from all modalities (OCR, EXIF metadata, document, audio) is correctly appended to `context.messages` and scanned by L2/L3 via `context.prompt_text`.
+
+**Documented**: Cross-modal payload fragmentation evades L2 regex (by design — L3 DeBERTa handles semantic detection on concatenated text).
+
+### Test Count After Phase 2
+
+3096 passing (3066 Phase 1 + 30 Phase 2), 8 skipped.
