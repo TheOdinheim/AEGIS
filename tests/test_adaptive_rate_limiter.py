@@ -456,15 +456,22 @@ class TestTaxonomyEndpoint:
         assert resp.status_code == 401
 
     def test_taxonomy_stats_authenticated(self):
-        from aegis.main import app, _config
+        import aegis.main as m
+        from aegis.config import get_config
 
-        if not _config or not _config.api_key:
-            pytest.skip("No API key configured")
+        # Ensure layers are initialized (lifespan doesn't run with TestClient)
+        if m._barrier is None:
+            m._init_layers()
 
-        client = TestClient(app)
+        config = m._config or get_config()
+        if not config.api_key:
+            config.api_key = "test-taxonomy-key"
+            m._config = config
+
+        client = TestClient(m.app)
         resp = client.get(
             "/v1/taxonomy/stats",
-            headers={"Authorization": f"Bearer {_config.api_key}"},
+            headers={"Authorization": f"Bearer {config.api_key}"},
         )
         assert resp.status_code == 200
         data = resp.json()

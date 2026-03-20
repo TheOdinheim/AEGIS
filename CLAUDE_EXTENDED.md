@@ -1118,3 +1118,21 @@ CircuitBreaker now publishes state change events via event bus on `_trip()` (OPE
 **Tests added**: 5 in `TestRT_P2_002_BreakerTLIWiring` — trip escalation, recovery de-escalation, RED ceiling, graceful degradation, cumulative escalation.
 
 **Test count**: 3101 passing (3096 + 5), 8 skipped.
+
+### Stress Test Fix: Subprocess→In-Process
+
+**Date**: 2026-03-20
+
+Stress tests (`tests/stress/test_stress.py`) were failing because they spawned AEGIS as subprocess servers. Two root causes:
+1. `@pytest.fixture` async generator not supported by pytest-asyncio 1.3.0 (needs `@pytest_asyncio.fixture`) — fixture yielded raw `async_generator` objects
+2. Subprocess AEGIS failed to start within 30s health check timeout
+
+**Fix**: Rewrote all 5 stress tests to use `httpx.AsyncClient` with `ASGITransport` (in-process ASGI). Upstream model responses mocked via `patch("main._forward_to_upstream")`. Layers initialized via `_init_layers()` since ASGI transport doesn't trigger lifespan. All concurrent load test logic preserved.
+
+**Also fixed**: `test_taxonomy_stats_authenticated` was skipping because `_config` was `None` at import time (before lifespan). Now initializes layers and sets API key directly, matching the pattern used by other endpoint tests.
+
+**Tesseract**: 2 tests (`test_tesseract_extracts_chinese_text`, `test_chinese_injection_detected_by_multilang`) require `tesseract-ocr` binary. These skip gracefully when binary is not installed. Install with: `sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim`
+
+**Files modified**: `tests/stress/test_stress.py` (complete rewrite), `tests/test_adaptive_rate_limiter.py` (taxonomy test fix)
+
+**Test count**: 3107 passing with AEGIS_STRESS_FULL=1, 2 skipped (Tesseract binary). 3102 passing without stress flag, 7 skipped.
