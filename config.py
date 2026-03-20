@@ -374,10 +374,10 @@ class OutputConfig(BaseSettings):
     model_config = {"env_prefix": "AEGIS_OUTPUT_"}
 
     pii_redaction_threshold: float = Field(
-        default=0.7,
+        default=0.5,
         ge=0.0,
         le=1.0,
-        description="Presidio confidence threshold for PII redaction",
+        description="Presidio confidence threshold for PII redaction (lowered from 0.7 to close gap with alert threshold — RT-008)",
     )
     pii_alert_threshold: float = Field(
         default=0.4,

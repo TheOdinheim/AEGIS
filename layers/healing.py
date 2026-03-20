@@ -263,32 +263,65 @@ class SessionQuarantine:
         self._config = config or HealingConfig()
         self._session_strikes: dict[str, int] = {}
         self._quarantined: set[str] = set()
+        # Source-level tracking (RT-009): tracks strikes by API key/IP
+        self._source_strikes: dict[str, int] = {}
+        self._quarantined_sources: set[str] = set()
 
-    def record_adversarial_event(self, session_id: str) -> bool:
+    def record_adversarial_event(
+        self, session_id: str, *, source_id: str | None = None,
+    ) -> bool:
         """Record an adversarial event for a session.
 
-        Returns True if the session is now quarantined.
+        Args:
+            session_id: Session identifier.
+            source_id: Optional API key or IP for source-level tracking.
+
+        Returns True if the session or source is now quarantined.
         """
+        quarantined = False
         self._session_strikes[session_id] = self._session_strikes.get(session_id, 0) + 1
         if self._session_strikes[session_id] >= self._config.quarantine_threshold:
             self._quarantined.add(session_id)
             logger.warning("Session quarantined: %s (strikes=%d)",
                          session_id, self._session_strikes[session_id])
-            return True
-        return False
+            quarantined = True
+
+        # Source-level tracking: catches session rotation attacks
+        if source_id:
+            self._source_strikes[source_id] = self._source_strikes.get(source_id, 0) + 1
+            if self._source_strikes[source_id] >= self._config.quarantine_threshold:
+                self._quarantined_sources.add(source_id)
+                logger.warning("Source quarantined: %s (strikes=%d)",
+                             source_id, self._source_strikes[source_id])
+                quarantined = True
+
+        return quarantined
 
     def is_quarantined(self, session_id: str) -> bool:
         """Check if a session is quarantined."""
         return session_id in self._quarantined
 
+    def is_source_quarantined(self, source_id: str) -> bool:
+        """Check if a source (API key/IP) is quarantined."""
+        return source_id in self._quarantined_sources
+
     @property
     def quarantined_sessions(self) -> set[str]:
         return set(self._quarantined)
+
+    @property
+    def quarantined_sources(self) -> set[str]:
+        return set(self._quarantined_sources)
 
     def release(self, session_id: str) -> None:
         """Release a session from quarantine."""
         self._quarantined.discard(session_id)
         self._session_strikes.pop(session_id, None)
+
+    def release_source(self, source_id: str) -> None:
+        """Release a source from quarantine."""
+        self._quarantined_sources.discard(source_id)
+        self._source_strikes.pop(source_id, None)
 
 
 class HealingLayer:
@@ -316,6 +349,18 @@ class HealingLayer:
     @property
     def quarantine(self) -> SessionQuarantine:
         return self._quarantine
+
+    def record_adversarial_event(
+        self, session_id: str, *, source_id: str | None = None,
+    ) -> bool:
+        """Convenience: delegate to quarantine with source tracking."""
+        return self._quarantine.record_adversarial_event(
+            session_id, source_id=source_id,
+        )
+
+    def is_source_quarantined(self, source_id: str) -> bool:
+        """Check if a source (API key/IP) is quarantined."""
+        return self._quarantine.is_source_quarantined(source_id)
 
     def should_route_to_primary(self, endpoint: str = "primary") -> bool:
         """Check if requests should go to primary or fallback."""

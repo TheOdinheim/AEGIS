@@ -253,7 +253,7 @@ _HOMOGLYPH_MAP: dict[str, str] = {
 _HOMOGLYPH_TABLE = str.maketrans(_HOMOGLYPH_MAP)
 
 
-def _try_recursive_base64_decode(text: str, max_depth: int = 3) -> str:
+def _try_recursive_base64_decode(text: str, max_depth: int = 5) -> str:
     """Decode base64-encoded segments in text, recursively up to max_depth.
 
     Looks for base64 strings (16+ chars, valid charset), decodes them,
@@ -338,6 +338,49 @@ def _normalize_leet_word(chars: list[str]) -> str:
     return "".join(out)
 
 
+# Known high-signal words that indicate injection attempts.  If a ROT13-decoded
+# segment contains any of these, the decoded version replaces the original.
+_ROT13_TRIGGER_WORDS = frozenset([
+    "ignore", "disregard", "forget", "override", "bypass", "instructions",
+    "previous", "system", "prompt", "admin", "root", "sudo", "exec",
+    "reveal", "repeat", "inject", "jailbreak", "all", "you", "are",
+    "now", "new", "mode", "hack", "assistant",
+])
+
+
+def _try_rot13_decode(text: str) -> str:
+    """Attempt ROT13 decode on individual word-like segments.
+
+    Only replaces segments whose decoded form contains a known injection
+    keyword. This preserves the rest of the text (including keywords like
+    "ROT13" that regex patterns match on) while decoding suspicious payloads.
+    """
+    import codecs
+
+    seg_re = re.compile(r"[A-Za-z]{3,}")
+
+    def _replace_segment(m: re.Match) -> str:
+        seg = m.group()
+        dec = codecs.decode(seg, "rot13")
+        dec_lower = dec.lower()
+        if any(w == dec_lower or w in dec_lower for w in _ROT13_TRIGGER_WORDS):
+            return dec
+        return seg
+
+    result = seg_re.sub(_replace_segment, text)
+
+    # If no segments were decoded, try full-text decode as last resort
+    if result == text:
+        decoded = codecs.decode(text, "rot13")
+        decoded_lower = decoded.lower()
+        if any(word in decoded_lower for word in _ROT13_TRIGGER_WORDS):
+            # Append decoded version rather than replace, so both
+            # the original and decoded text are scanned by patterns
+            return text + " " + decoded
+
+    return result
+
+
 def normalize_text(text: str) -> str:
     """Normalize text to defeat character-level evasion techniques.
 
@@ -348,8 +391,9 @@ def normalize_text(text: str) -> str:
     4. Strip combining marks (Mn=Nonspacing, Me=Enclosing)
     5. Homoglyph canonicalization (200+ chars: Cyrillic/Greek/Math/Enclosed/Coptic/Tifinagh/fullwidth → Latin)
     6. Leetspeak normalization (contextual — only when adjacent to alpha chars)
-    7. Recursive base64 decode (max 3 iterations)
-    8. Collapse whitespace (multiple spaces → single, strip invisible joiners/separators)
+    7. Recursive base64 decode (max 5 iterations)
+    7.5. ROT13 decode (keyword-gated to avoid FP)
+    8. Collapse whitespace (all Unicode whitespace → single ASCII space)
 
     This is a one-way preprocessing for detection only — the original text
     is preserved for logging and audit purposes.
@@ -368,8 +412,10 @@ def normalize_text(text: str) -> str:
     text = _normalize_leetspeak(text)
     # Step 7: Recursive base64 decode
     text = _try_recursive_base64_decode(text)
-    # Step 8: Collapse whitespace
-    text = re.sub(r" {2,}", " ", text)
+    # Step 7.5: ROT13 decode (attempt on all-alpha segments)
+    text = _try_rot13_decode(text)
+    # Step 8: Collapse whitespace (all Unicode whitespace → single ASCII space)
+    text = re.sub(r"[\s\u00a0\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+", " ", text)
     return text
 
 

@@ -175,12 +175,28 @@ class StreamingInterceptor:
         return result
 
     def _check_cumulative(self, score: float) -> str | None:
-        """Track cumulative threat. Returns termination reason or None."""
+        """Track cumulative threat. Returns termination reason or None.
+
+        Two detection modes:
+        1. Rolling average >= threshold over N consecutive windows (slow-burn)
+        2. Spike detection: any window score >= 0.85 counted; if 2+ spikes
+           seen in the history, terminate (interleaved toxic burst pattern)
+        """
         self._window_scores.append(score)
 
         if len(self._window_scores) < self._cumulative_min_windows:
             return None
 
+        # Spike detection: count high-threat windows in history
+        spike_threshold = 0.85
+        spike_count = sum(1 for s in self._window_scores if s >= spike_threshold)
+        if spike_count >= 2:
+            return (
+                f"Cumulative threat: {spike_count} toxic spikes "
+                f"(>= {spike_threshold}) in last {len(self._window_scores)} windows"
+            )
+
+        # Rolling average detection
         avg = sum(self._window_scores) / len(self._window_scores)
         if avg >= self._cumulative_threshold:
             self._consecutive_above += 1

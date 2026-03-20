@@ -240,8 +240,18 @@ class FingerprintDetector:
         for agents in agents_per_resource.values():
             all_agents.update(agents)
 
-        if coverage >= self._enum_coverage_threshold and len(all_agents) >= 3:
-            confidence = min(1.0, coverage)
+        # Detect via coverage threshold OR absolute distinct-target count.
+        # Absolute count catches low-coverage but high-activity enumeration
+        # (RT-012: attacker dilutes known_resources to drop coverage).
+        absolute_target_threshold = 5
+        coverage_triggered = coverage >= self._enum_coverage_threshold and len(all_agents) >= 3
+        absolute_triggered = (
+            len(resources_hit) >= absolute_target_threshold
+            and len(all_agents) >= 3
+        )
+
+        if coverage_triggered or absolute_triggered:
+            confidence = min(1.0, max(coverage, len(resources_hit) / max(len(self._known_resources), 1)))
             return FingerprintMatch(
                 signature_type=FingerprintType.SYSTEMATIC_ENUMERATION,
                 confidence=confidence,
@@ -252,6 +262,7 @@ class FingerprintDetector:
                     "known_resources": len(self._known_resources),
                     "distinct_agents": len(all_agents),
                     "window_size": window_size,
+                    "trigger": "coverage" if coverage_triggered else "absolute_count",
                 },
             )
         return None

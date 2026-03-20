@@ -151,16 +151,24 @@ class LeakageDetector:
         """Compute n-gram overlap ratio between response and reference.
 
         Returns the fraction of reference n-grams found in the response.
+        Uses adaptive n-gram size: falls back to 2-grams for short references
+        where the primary n-gram size produces no n-grams.  Also checks
+        multiple n-gram sizes (2, 3, primary) and returns the maximum overlap
+        to catch paraphrased echoes that break at the 4-gram level but retain
+        2-gram or 3-gram structure.
         """
-        ref_ngrams = _extract_ngrams(reference, self._ngram_size)
-        if not ref_ngrams:
-            return 0.0
+        best_overlap = 0.0
 
-        resp_ngrams = set(_extract_ngrams(response, self._ngram_size))
-        ref_ngram_set = set(ref_ngrams)
+        # Check at multiple n-gram sizes for robustness against paraphrasing
+        sizes = sorted({2, min(3, self._ngram_size), self._ngram_size})
+        for n in sizes:
+            ref_ngrams = _extract_ngrams(reference, n)
+            if not ref_ngrams:
+                continue
+            resp_ngrams = set(_extract_ngrams(response, n))
+            ref_ngram_set = set(ref_ngrams)
+            overlap_count = len(ref_ngram_set & resp_ngrams)
+            overlap = overlap_count / len(ref_ngram_set)
+            best_overlap = max(best_overlap, overlap)
 
-        if not ref_ngram_set:
-            return 0.0
-
-        overlap_count = len(ref_ngram_set & resp_ngrams)
-        return overlap_count / len(ref_ngram_set)
+        return best_overlap

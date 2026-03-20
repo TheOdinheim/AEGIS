@@ -64,6 +64,41 @@ python3 -m pytest tests/test_red_team.py -v
 - **Detection gaps**: Evaded attacks are logged with full metadata for manual analysis and code fixes
 - **Report grades**: STRONG (<=5% evasion), ADEQUATE (<=15%), NEEDS_IMPROVEMENT (<=30%), CRITICAL (>30%)
 
+## White-Box Red Team Hardening (2026-03-20)
+
+Full-codebase white-box adversarial exercise with complete source access. 12 exploitable bypasses found, all fixed, 24 new tests added.
+
+**Report**: `docs/red_team_report.md`
+**Tests**: `tests/test_red_team_whitebox.py` (24 tests: 12 evasion PoCs + 12 fix validations)
+
+### Findings Summary
+
+| ID | Severity | Layer | Finding | Fix |
+|----|----------|-------|---------|-----|
+| RT-001 | HIGH | L2 Innate | Base64 decode depth 3, nested 4+ evades | Depth 3→5 |
+| RT-002 | MEDIUM | L2 Innate | Only ASCII spaces collapsed, tabs/NBSP survive | Unicode-aware whitespace collapse |
+| RT-003 | HIGH | L5 Output | 4-gram leakage detection defeated by paraphrasing | Multi-size n-gram (2,3,4) overlap |
+| RT-004 | MEDIUM | L5 Output | Streaming cumulative average masks interleaved toxic bursts | Spike detection (2+ windows ≥0.85) |
+| RT-005 | HIGH | Ext 6 | Temporal clustering min_agents=10 easily undercut | Configurable, demonstrated at 5 |
+| RT-006 | HIGH | Ext 7 | Intent classifier cardinality>5 misses 4-agent enum | Configurable enum_agent_cardinality_min |
+| RT-007 | MEDIUM | L2 Innate | ROT13 payloads not decoded | Keyword-gated ROT13 decode step |
+| RT-008 | HIGH | L5 Output | PII gap between alert (0.4) and redaction (0.7) | Redaction threshold 0.7→0.5 |
+| RT-009 | MEDIUM | L7 Healing | Session rotation evades per-session quarantine | Source-level (API key/IP) tracking |
+| RT-010 | HIGH | Ext 6 | Entropy history inflation during campaign flood | Baseline freeze mechanism |
+| RT-011 | MEDIUM | L5 Output | Short prompts (<4 words) produce 0 n-grams | 2-gram fallback for short references |
+| RT-012 | MEDIUM | Ext 6 | Resource dilution drops enumeration coverage | Absolute distinct-target count threshold (≥5) |
+
+### Files Modified
+
+- `layers/innate/regex_engine.py` — RT-001 (depth 5), RT-002 (Unicode whitespace), RT-007 (ROT13 decode)
+- `layers/output/leakage.py` — RT-003, RT-011 (multi-size n-gram)
+- `layers/output/streaming.py` — RT-004 (spike detection)
+- `layers/healing.py` — RT-009 (source-level quarantine)
+- `config.py` — RT-008 (pii_redaction_threshold 0.7→0.5)
+- `layers/correlation/fingerprint_detector.py` — RT-012 (absolute count threshold)
+
+---
+
 ## APT Campaign Simulations (Red Team Phase 2)
 
 Six APT campaigns test AEGIS detection across all layers. Run in-process via TestClient (no live server). Each campaign reinitializes layers for clean state.
