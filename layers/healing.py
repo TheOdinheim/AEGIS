@@ -23,6 +23,7 @@ routed to honeypots for intelligence collection.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import deque
@@ -81,6 +82,7 @@ class CircuitBreaker:
         self._probe_results: list[ProbeResult] = []
         self._consecutive_trips: int = 0
         self._recovery_events: list[RecoveryEvent] = []
+        self._event_bus: object | None = None  # Set by HealingLayer after init
 
     @property
     def state(self) -> CircuitBreakerState:
@@ -209,6 +211,30 @@ class CircuitBreaker:
             "Circuit breaker OPEN [%s]: %s (cooldown=%.0fs, trips=%d)",
             self._endpoint, reason, self._current_cooldown, self._consecutive_trips,
         )
+        self._publish_state_change("open", old_state.value, reason)
+
+    def _publish_state_change(self, new_state: str, old_state: str, reason: str) -> None:
+        """Publish circuit breaker state change to event bus (fire-and-forget)."""
+        if not self._event_bus:
+            return
+        try:
+            coro = self._event_bus.publish("circuit_breaker", {
+                "type": "circuit_breaker_trip" if new_state == "open" else "circuit_breaker_recovery",
+                "endpoint": self._endpoint,
+                "new_state": new_state,
+                "previous_state": old_state,
+                "trigger_reason": reason,
+                "failure_rate": self._failure_rate(),
+                "recommended_tli_escalation": 1 if new_state == "open" else -1,
+            })
+            # Schedule coroutine if event loop is running, otherwise skip
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(coro)
+            except RuntimeError:
+                pass  # No running event loop — skip publish
+        except Exception:
+            logger.debug("Failed to publish circuit breaker event", exc_info=True)
 
     def _transition_to_half_open(self) -> None:
         """Transition from OPEN to HALF_OPEN for probing."""
@@ -237,6 +263,7 @@ class CircuitBreaker:
         )
         self._recovery_events.append(event)
         logger.info("Circuit breaker CLOSED [%s]: primary recovered", self._endpoint)
+        self._publish_state_change("closed", "half_open", "All probes passed")
 
     def _prune_window(self, now: float) -> None:
         """Remove entries older than the sliding window."""
@@ -335,6 +362,18 @@ class HealingLayer:
         self._config = config or HealingConfig()
         self._breakers: dict[str, CircuitBreaker] = {}
         self._quarantine = SessionQuarantine(self._config)
+        self._event_bus: object | None = None
+
+    @property
+    def event_bus(self) -> object | None:
+        return self._event_bus
+
+    @event_bus.setter
+    def event_bus(self, bus: object | None) -> None:
+        self._event_bus = bus
+        # Propagate to existing breakers
+        for breaker in self._breakers.values():
+            breaker._event_bus = bus
 
     def get_breaker(self, endpoint: str = "primary") -> CircuitBreaker:
         """Get or create a circuit breaker for an endpoint.
@@ -344,6 +383,7 @@ class HealingLayer:
         if endpoint in self._breakers:
             return self._breakers[endpoint]
         new_breaker = CircuitBreaker(self._config, endpoint)
+        new_breaker._event_bus = self._event_bus
         return self._breakers.setdefault(endpoint, new_breaker)
 
     @property

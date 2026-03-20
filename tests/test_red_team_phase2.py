@@ -986,3 +986,165 @@ class TestHypothesis3_MultimodalHandoff:
         source = inspect.getsource(RequestContext.prompt_text.fget)
         # The implementation iterates over self.messages
         assert "self.messages" in source or "msg" in source
+
+
+# ===========================================================================
+# RT-P2-002 Fix: Circuit Breaker → TLI Escalation Wiring
+# ===========================================================================
+
+class TestRT_P2_002_BreakerTLIWiring:
+    """Verify that circuit breaker state changes drive TLI escalation/de-escalation.
+
+    RT-P2-002 identified a gap: breaker trips didn't automatically escalate the
+    policy engine's Threat Level Indicator. The fix wires CircuitBreaker events
+    through the event bus to PolicyEngine.
+    """
+
+    @pytest.mark.asyncio
+    async def test_breaker_trip_escalates_tli(self):
+        """Tripping a breaker escalates TLI by one level."""
+        from aegis.config import ThreatLevel
+        from aegis.layers.healing import HealingLayer
+        from aegis.services.event_bus import InMemoryEventBus
+
+        bus = InMemoryEventBus()
+        await bus.start()
+
+        policy = PolicyEngine()
+        assert policy.get_threat_level() == ThreatLevel.GREEN
+
+        # Subscribe policy handler to circuit_breaker channel
+        async def on_cb(event):
+            if event.payload.get("new_state") == "open":
+                policy.escalate_threat_level()
+
+        await bus.subscribe("circuit_breaker", on_cb)
+
+        healer = HealingLayer()
+        healer.event_bus = bus
+
+        breaker = healer.get_breaker("primary")
+        breaker.record_failure()
+
+        # Allow the fire-and-forget task to complete
+        await asyncio.sleep(0.05)
+
+        assert breaker.state == CircuitBreakerState.OPEN
+        assert policy.get_threat_level() == ThreatLevel.BLUE
+
+    @pytest.mark.asyncio
+    async def test_breaker_recovery_deescalates_tli(self):
+        """Breaker recovery (CLOSED) de-escalates TLI by one level."""
+        from aegis.config import ThreatLevel
+        from aegis.layers.healing import HealingLayer
+        from aegis.services.event_bus import InMemoryEventBus
+
+        bus = InMemoryEventBus()
+        await bus.start()
+
+        policy = PolicyEngine()
+
+        async def on_cb(event):
+            if event.payload.get("new_state") == "open":
+                policy.escalate_threat_level()
+            elif event.payload.get("new_state") == "closed":
+                policy.de_escalate_threat_level()
+
+        await bus.subscribe("circuit_breaker", on_cb)
+
+        healer = HealingLayer()
+        healer.event_bus = bus
+
+        breaker = healer.get_breaker("primary")
+
+        # Trip the breaker
+        breaker.record_failure()
+        await asyncio.sleep(0.05)
+        assert policy.get_threat_level() == ThreatLevel.BLUE
+
+        # Simulate recovery: OPEN → HALF_OPEN → probe success → CLOSED
+        # Backdate the open time so cooldown has elapsed
+        breaker._open_time = time.monotonic() - breaker._current_cooldown - 1
+        breaker.should_allow_request()  # Transitions to HALF_OPEN
+        assert breaker.state == CircuitBreakerState.HALF_OPEN
+
+        # Succeed all probes
+        for _ in range(breaker._config.probe_count):
+            breaker.record_probe_result(success=True)
+
+        await asyncio.sleep(0.05)
+        assert breaker.state == CircuitBreakerState.CLOSED
+        assert policy.get_threat_level() == ThreatLevel.GREEN
+
+    @pytest.mark.asyncio
+    async def test_breaker_trip_at_red_stays_red(self):
+        """TLI at RED does not escalate further on breaker trip."""
+        from aegis.config import ThreatLevel
+        from aegis.layers.healing import HealingLayer
+        from aegis.services.event_bus import InMemoryEventBus
+
+        bus = InMemoryEventBus()
+        await bus.start()
+
+        policy = PolicyEngine()
+        policy.set_threat_level(ThreatLevel.RED)
+
+        async def on_cb(event):
+            if event.payload.get("new_state") == "open":
+                policy.escalate_threat_level()
+
+        await bus.subscribe("circuit_breaker", on_cb)
+
+        healer = HealingLayer()
+        healer.event_bus = bus
+
+        breaker = healer.get_breaker("primary")
+        breaker.record_failure()
+        await asyncio.sleep(0.05)
+
+        # Should stay at RED
+        assert policy.get_threat_level() == ThreatLevel.RED
+
+    def test_breaker_trip_without_event_bus(self):
+        """Breaker trip without event bus doesn't crash (graceful degradation)."""
+        from aegis.layers.healing import HealingLayer
+
+        healer = HealingLayer()
+        # No event bus wired — _event_bus is None
+        breaker = healer.get_breaker("primary")
+
+        # Should not raise
+        breaker.record_failure()
+        assert breaker.state == CircuitBreakerState.OPEN
+
+    @pytest.mark.asyncio
+    async def test_multiple_breaker_trips_escalate_cumulatively(self):
+        """Two different endpoint breakers trip → TLI escalates twice."""
+        from aegis.config import ThreatLevel
+        from aegis.layers.healing import HealingLayer
+        from aegis.services.event_bus import InMemoryEventBus
+
+        bus = InMemoryEventBus()
+        await bus.start()
+
+        policy = PolicyEngine()
+
+        async def on_cb(event):
+            if event.payload.get("new_state") == "open":
+                policy.escalate_threat_level()
+
+        await bus.subscribe("circuit_breaker", on_cb)
+
+        healer = HealingLayer()
+        healer.event_bus = bus
+
+        # Trip two different endpoint breakers
+        breaker1 = healer.get_breaker("primary")
+        breaker1.record_failure()
+        await asyncio.sleep(0.05)
+        assert policy.get_threat_level() == ThreatLevel.BLUE
+
+        breaker2 = healer.get_breaker("secondary")
+        breaker2.record_failure()
+        await asyncio.sleep(0.05)
+        assert policy.get_threat_level() == ThreatLevel.YELLOW

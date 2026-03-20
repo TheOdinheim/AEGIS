@@ -1106,3 +1106,15 @@ Extracted text from all modalities (OCR, EXIF metadata, document, audio) is corr
 ### Test Count After Phase 2
 
 3096 passing (3066 Phase 1 + 30 Phase 2), 8 skipped.
+
+### RT-P2-002 Fix: Breaker→TLI Wiring
+
+**Date**: 2026-03-20
+
+CircuitBreaker now publishes state change events via event bus on `_trip()` (OPEN) and `_close()` (CLOSED). PolicyEngine subscribes: escalates TLI on trip, de-escalates on recovery. HealingLayer propagates `_event_bus` to all breakers.
+
+**Files modified**: `layers/healing.py` (event publish on state change), `main.py` (wire event bus to HealingLayer, add recovery de-escalation handler)
+
+**Tests added**: 5 in `TestRT_P2_002_BreakerTLIWiring` — trip escalation, recovery de-escalation, RED ceiling, graceful degradation, cumulative escalation.
+
+**Test count**: 3101 passing (3096 + 5), 8 skipped.

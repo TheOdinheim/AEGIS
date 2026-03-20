@@ -865,6 +865,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _date_scanner._event_bus = _event_bus
     if _campaign_engine:
         _campaign_engine._event_bus = _event_bus
+    if _healing:
+        _healing.event_bus = _event_bus
 
     _http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -1045,11 +1047,24 @@ async def _wire_event_bus_subscriptions() -> None:
             _policy.escalate_threat_level()
             logger.info("Policy escalated TLI to %s via event bus", _policy.threat_level.name)
 
-    # L6 subscribes to circuit_breaker: escalate on trips
+    # L6 subscribes to circuit_breaker: escalate on trips, de-escalate on recovery
     async def _on_circuit_breaker_for_policy(event: Event) -> None:
-        if _policy and event.payload.get("new_state") == "open":
+        if not _policy:
+            return
+        new_state = event.payload.get("new_state")
+        endpoint = event.payload.get("endpoint", "unknown")
+        if new_state == "open":
             _policy.escalate_threat_level()
-            logger.info("Policy escalated TLI to %s on circuit breaker trip", _policy.threat_level.name)
+            logger.info(
+                "Policy escalated TLI to %s on circuit breaker trip [%s]",
+                _policy.threat_level.name, endpoint,
+            )
+        elif new_state == "closed":
+            _policy.de_escalate_threat_level()
+            logger.info(
+                "Policy de-escalated TLI to %s on circuit breaker recovery [%s]",
+                _policy.threat_level.name, endpoint,
+            )
 
     await _event_bus.subscribe(CHANNEL_THREAT_DETECTED, _on_threat_for_policy)
     await _event_bus.subscribe(CHANNEL_CIRCUIT_BREAKER, _on_circuit_breaker_for_policy)
