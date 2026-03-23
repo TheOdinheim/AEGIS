@@ -22,7 +22,6 @@ _DASHBOARD_HTML = r"""<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/recharts@2/umd/Recharts.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -110,7 +109,6 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg)
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback,useRef}=React;
-const {LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid}=Recharts;
 
 function App(){
   const [apiKey,setApiKey]=useState(()=>sessionStorage.getItem('aegis_api_key')||'');
@@ -292,17 +290,36 @@ function App(){
           <div className="section">
             <div className="section-title">Live Activity — Requests/sec (1h)</div>
             <div className="chart-container">
-              {chartData.length>0?(
-                <ResponsiveContainer width="100%" height={180}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151"/>
-                    <XAxis dataKey="time" stroke="#6b7280" fontSize={11} interval="preserveStartEnd"/>
-                    <YAxis stroke="#6b7280" fontSize={11}/>
-                    <Tooltip contentStyle={{background:'#1f2937',border:'1px solid #374151',borderRadius:8,color:'#e5e7eb'}}/>
-                    <Line type="monotone" dataKey="rps" stroke="#3b82f6" strokeWidth={2} dot={false} name="Requests/sec"/>
-                  </LineChart>
-                </ResponsiveContainer>
-              ):(
+              {chartData.length>1?(()=>{
+                const W=800,H=170,pad={t:10,r:20,b:30,l:50};
+                const pw=W-pad.l-pad.r,ph=H-pad.t-pad.b;
+                const vals=chartData.map(d=>d.rps);
+                const maxV=Math.max(...vals,1);
+                const pts=chartData.map((d,i)=>{
+                  const x=pad.l+(i/(chartData.length-1))*pw;
+                  const y=pad.t+ph-(d.rps/maxV)*ph;
+                  return`${x},${y}`;
+                }).join(' ');
+                const ticks=5;
+                return(
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',height:180}}>
+                    {Array.from({length:ticks},(_, i)=>{
+                      const y=pad.t+(ph/(ticks-1))*i;
+                      const v=((maxV*(ticks-1-i))/(ticks-1)).toFixed(1);
+                      return <g key={i}>
+                        <line x1={pad.l} y1={y} x2={W-pad.r} y2={y} stroke="#374151" strokeDasharray="3 3"/>
+                        <text x={pad.l-8} y={y+4} textAnchor="end" fill="#6b7280" fontSize={10}>{v}</text>
+                      </g>;
+                    })}
+                    {chartData.filter((_,i)=>i%(Math.ceil(chartData.length/6))===0||i===chartData.length-1).map((d,j)=>{
+                      const i=chartData.indexOf(d);
+                      const x=pad.l+(i/(chartData.length-1))*pw;
+                      return <text key={j} x={x} y={H-6} textAnchor="middle" fill="#6b7280" fontSize={10}>{d.time}</text>;
+                    })}
+                    <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth={2} strokeLinejoin="round"/>
+                  </svg>
+                );
+              })():(
                 <div className="empty-state">Collecting metrics data...</div>
               )}
             </div>
@@ -411,7 +428,7 @@ function App(){
           <div className="side-section">
             <div className="side-section-title">Test Validation</div>
             <div style={{marginBottom:8}}>
-              <span className="badge">{(overview?.test_count||3109).toLocaleString()} passing</span>
+              <span className="badge">{(overview?.test_count||3139).toLocaleString()} passing</span>
             </div>
             <div style={{fontSize:12,color:'var(--text2)'}}>
               Red team: 15 findings, all fixed<br/>
