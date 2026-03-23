@@ -205,6 +205,10 @@ from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
 from aegis.models.policy_decision import PolicyAction
+from aegis.dashboard.api import router as dashboard_api_router
+from aegis.dashboard.sse import router as dashboard_sse_router
+from aegis.dashboard.frontend import router as dashboard_frontend_router
+from aegis.dashboard.metrics_buffer import MetricsBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +271,10 @@ _tce: TemporalCorrelationEngine | None = None
 _snapshot_manager: CleanStateSnapshotManager | None = None
 _date_scanner: DateTriggeredAnomalyScanner | None = None
 _campaign_engine: CampaignCorrelationEngine | None = None
+
+# Dashboard
+_dashboard_metrics_buffer: MetricsBuffer | None = None
+_dashboard_start_time: float = time.time()
 
 
 def _init_layers(
@@ -973,8 +981,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 stats.get("phase_distribution", {}).get(phase, 0)
             )
 
+    # --- Dashboard metrics buffer ---
+    global _dashboard_metrics_buffer, _dashboard_start_time
+    _dashboard_start_time = time.time()
+    _dashboard_metrics_buffer = MetricsBuffer()
+    await _dashboard_metrics_buffer.start()
+
     logger.info("AEGIS proxy initialized — all layers active (event bus: %s)", _event_bus.backend)
     yield
+
+    # Stop dashboard metrics buffer
+    if _dashboard_metrics_buffer:
+        await _dashboard_metrics_buffer.stop()
 
     # Save vault state on shutdown
     if _vault:
@@ -1086,6 +1104,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Mount dashboard routers
+app.include_router(dashboard_api_router)
+app.include_router(dashboard_sse_router)
+app.include_router(dashboard_frontend_router)
 
 
 # ---------------------------------------------------------------------------

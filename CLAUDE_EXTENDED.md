@@ -1146,3 +1146,25 @@ Stress tests (`tests/stress/test_stress.py`) were failing because they spawned A
 **Files modified**: `tests/test_chimera_hardening.py`
 
 **Test count**: 3109 passing with AEGIS_STRESS_FULL=1 + Tesseract, 0 skipped.
+
+### Production Dashboard: API + SSE + React Frontend
+
+**Date**: 2026-03-23
+
+Full production dashboard served by AEGIS at `/dashboard`. Four components:
+
+1. **Dashboard API** (`dashboard/api.py`): 5 endpoints — `/dashboard/api/overview` (system overview, TLI, layer status, circuit breakers), `/dashboard/api/detections` (recent threat detections from audit log), `/dashboard/api/campaigns` (campaign alerts from correlation engine), `/dashboard/api/compliance` (framework coverage from compliance engine), `/dashboard/api/metrics/timeseries` (time-bucketed metrics for charts).
+
+2. **Metrics Buffer** (`dashboard/metrics_buffer.py`): In-memory rolling time-series buffer. Samples Prometheus metrics every 5s, retains 1h (720 samples). Tracks requests_total, blocks_total, threat_level, p95_latency_ms. Ephemeral — starts empty on boot.
+
+3. **SSE Stream** (`dashboard/sse.py`): `/dashboard/events` Server-Sent Events endpoint. Subscribes to event bus channels (threat_detected, circuit_breaker) and forwards events. 5s heartbeat with TLI and RPS. Supports auth via both Bearer token and query param (for EventSource).
+
+4. **React Frontend** (`dashboard/frontend.py`): Single HTML page with embedded React/Recharts. Dark theme. Sections: top bar with TLI badge, metrics row (4 stat cards), live activity chart, layer status, detection feed, side panel (circuit breakers, compliance, test validation). API key auth prompt on first load, stored in sessionStorage. Technical/Biological mode toggle.
+
+**All dashboard endpoints require auth** except the HTML page itself. Graceful degradation: if any component (campaign engine, compliance, etc.) is None, returns safe defaults.
+
+**Files created**: `dashboard/__init__.py`, `dashboard/api.py`, `dashboard/metrics_buffer.py`, `dashboard/sse.py`, `dashboard/frontend.py`, `tests/test_dashboard.py` (30 tests)
+
+**Files modified**: `main.py` (import dashboard routers, mount, start/stop metrics buffer in lifespan)
+
+**Test count**: 3139 passing (3109 + 30), 0 skipped.
