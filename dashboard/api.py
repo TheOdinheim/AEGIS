@@ -167,7 +167,7 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "vault_size": vault_size,
             "quarantined_sessions": quarantined,
             "uptime_seconds": round(time.time() - m._dashboard_start_time, 1),
-            "test_count": 3109,
+            "test_count": 3139,
             "version": "2.0.0",
         })
     except Exception as e:
