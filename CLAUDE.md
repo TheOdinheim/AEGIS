@@ -253,9 +253,9 @@ Single file: `python3 -m pytest tests/test_attack_battery.py -x -q --tb=short -p
 Stress (live): `AEGIS_STRESS_FULL=1 python3 -m pytest tests/stress/test_stress.py -v --tb=short`
 APT campaigns: `python3 -m red_team.run_red_team`
 
-## Current Metrics (as of 2026-03-19)
+## Current Metrics (as of 2026-03-23)
 
-- Tests: 3101 passing, 0 failed, 8 skipped (5 stress require AEGIS_STRESS_FULL=1, 2 Tesseract-dependent require tesseract-ocr binary, 1 API key-dependent)
+- Tests: 3109 passing, 0 failed, 0 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)

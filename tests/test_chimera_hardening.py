@@ -633,8 +633,10 @@ class TestTesseractOCRIntegration:
             f"Multilang detector should catch Chinese injection: {chinese_text}"
         )
         assert result.confidence >= 0.85
-        assert "zh" in result.language.lower() or "chinese" in result.language.lower()
-        print(f"Detected: language={result.language}, confidence={result.confidence}")
+        assert any("ML-ZH" in p for p in result.matched_patterns), (
+            f"Expected Chinese pattern match (ML-ZH-*), got: {result.matched_patterns}"
+        )
+        print(f"Detected: patterns={result.matched_patterns}, confidence={result.confidence}")
 
     def test_xm_018_detection_with_simulated_ocr(self, regex_engine):
         """xm_018 is detectable when OCR extracts Chinese text (no Tesseract needed).

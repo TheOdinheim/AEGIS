@@ -1136,3 +1136,13 @@ Stress tests (`tests/stress/test_stress.py`) were failing because they spawned A
 **Files modified**: `tests/stress/test_stress.py` (complete rewrite), `tests/test_adaptive_rate_limiter.py` (taxonomy test fix)
 
 **Test count**: 3107 passing with AEGIS_STRESS_FULL=1, 2 skipped (Tesseract binary). 3102 passing without stress flag, 7 skipped.
+
+### Fix: Tesseract OCR Test Assertion
+
+**Date**: 2026-03-23
+
+`test_chinese_injection_detected_by_multilang` asserted `result.language` which doesn't exist on `ScanResult`. The multilang detector returns `ScanResult` (not `MultiLangResult`). Fixed to assert on `matched_patterns` containing `ML-ZH-*` pattern IDs instead.
+
+**Files modified**: `tests/test_chimera_hardening.py`
+
+**Test count**: 3109 passing with AEGIS_STRESS_FULL=1 + Tesseract, 0 skipped.
