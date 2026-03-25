@@ -149,7 +149,7 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
     </p>
     <div class="hero-buttons">
       <a href="/dashboard" class="btn-primary">View Live Dashboard &rarr;</a>
-      <a href="mailto:odinheimllc@gmail.com?subject=AEGIS%20Technical%20Paper%20Request" class="btn-secondary">Read the Technical Paper &rarr;</a>
+      <a href="mailto:odinheimllc@gmail.com?subject=AEGIS%20Demo%20Request&amp;body=I%27m%20interested%20in%20learning%20more%20about%20AEGIS." class="btn-secondary">Request a Demo &rarr;</a>
     </div>
   </div>
 </section>
