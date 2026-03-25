@@ -19,6 +19,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from aegis.dashboard import _get_main
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dashboard-sse"])
@@ -26,7 +28,7 @@ router = APIRouter(tags=["dashboard-sse"])
 
 def _is_sse_authenticated(request: Request) -> bool:
     """Check API key for SSE endpoint."""
-    import main as m
+    m = _get_main()
     if not m._config or not m._config.api_key:
         return False
     auth = request.headers.get("authorization", "")
@@ -46,7 +48,7 @@ def _is_sse_authenticated(request: Request) -> bool:
 
 async def _event_generator(request: Request) -> AsyncGenerator[dict, None]:
     """Generate SSE events from the event bus + heartbeat."""
-    import main as m
+    m = _get_main()
 
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
 

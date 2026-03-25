@@ -15,6 +15,8 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
+from aegis.dashboard import _get_main
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard/api", tags=["dashboard"])
@@ -26,7 +28,7 @@ def _is_dashboard_authenticated(request: Request) -> bool:
     Mirrors main._is_authenticated and barrier._extract_api_key:
     strips whitespace from token, supports x-api-key fallback.
     """
-    import main as m
+    m = _get_main()
     if not m._config or not m._config.api_key:
         return False
     auth = request.headers.get("authorization", "")
@@ -63,7 +65,7 @@ async def dashboard_overview(request: Request) -> JSONResponse:
     if err:
         return err
 
-    import main as m
+    m = _get_main()
     from aegis.middleware.metrics import (
         REQUESTS_TOTAL,
         BLOCKS_TOTAL,
@@ -203,7 +205,7 @@ async def dashboard_detections(
     if err:
         return err
 
-    import main as m
+    m = _get_main()
 
     detections: list[dict[str, Any]] = []
     if m._audit:
@@ -239,7 +241,7 @@ async def dashboard_campaigns(request: Request) -> JSONResponse:
     if err:
         return err
 
-    import main as m
+    m = _get_main()
 
     if not m._campaign_engine:
         return JSONResponse(content={
@@ -281,7 +283,7 @@ async def dashboard_compliance(request: Request) -> JSONResponse:
     if err:
         return err
 
-    import main as m
+    m = _get_main()
 
     if not m._compliance:
         return JSONResponse(content={
@@ -333,7 +335,7 @@ async def dashboard_timeseries(
     if err:
         return err
 
-    import main as m
+    m = _get_main()
 
     valid_metrics = {"requests_total", "blocks_total", "threat_level", "p95_latency_ms"}
     if metric not in valid_metrics:
