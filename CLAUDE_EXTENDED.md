@@ -1168,3 +1168,17 @@ Full production dashboard served by AEGIS at `/dashboard`. Four components:
 **Files modified**: `main.py` (import dashboard routers, mount, start/stop metrics buffer in lifespan)
 
 **Test count**: 3139 passing (3109 + 30), 0 skipped.
+
+---
+
+## Landing Page (odinheim.io)
+
+Product landing page served at `/` (root route). Pure inline HTML/CSS/JS, no external dependencies. Dark theme matching dashboard aesthetic.
+
+**Sections**: Hero (logo, tagline, CTAs), Problem (3 stat cards), Architecture (7-layer vertical stack with pulse-glow animation), Validation (4 metric cards: 3139 tests, 96.36% TPR, 0% FPR, 2 red team phases), Compliance (6 framework badges), Deploy (3-step flow), Footer (Odin LLC contact).
+
+**Files created**: `dashboard/landing.py`, `tests/test_landing.py` (11 tests)
+
+**Files modified**: `main.py` (import and mount landing router)
+
+**Test count**: 3145 passing (3134 + 11), 0 skipped.

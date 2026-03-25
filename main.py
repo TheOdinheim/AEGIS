@@ -208,6 +208,7 @@ from aegis.models.policy_decision import PolicyAction
 from aegis.dashboard.api import router as dashboard_api_router
 from aegis.dashboard.sse import router as dashboard_sse_router
 from aegis.dashboard.frontend import router as dashboard_frontend_router
+from aegis.dashboard.landing import router as landing_router
 from aegis.dashboard.metrics_buffer import MetricsBuffer
 
 logger = logging.getLogger(__name__)
@@ -1105,7 +1106,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Mount dashboard routers
+# Mount landing page and dashboard routers
+app.include_router(landing_router)
 app.include_router(dashboard_api_router)
 app.include_router(dashboard_sse_router)
 app.include_router(dashboard_frontend_router)
