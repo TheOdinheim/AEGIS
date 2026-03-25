@@ -21,14 +21,24 @@ router = APIRouter(prefix="/dashboard/api", tags=["dashboard"])
 
 
 def _is_dashboard_authenticated(request: Request) -> bool:
-    """Check API key for dashboard endpoints."""
+    """Check API key for dashboard endpoints.
+
+    Mirrors main._is_authenticated and barrier._extract_api_key:
+    strips whitespace from token, supports x-api-key fallback.
+    """
     import main as m
     if not m._config or not m._config.api_key:
         return False
     auth = request.headers.get("authorization", "")
+    token = ""
     if auth.startswith("Bearer "):
-        return hmac.compare_digest(auth[7:], m._config.api_key)
-    return False
+        token = auth[7:].strip()
+    if not token:
+        token = (request.headers.get("x-api-key")
+                 or request.headers.get("X-Api-Key") or "").strip()
+    if not token:
+        return False
+    return hmac.compare_digest(token, m._config.api_key)
 
 
 def _auth_or_401(request: Request) -> JSONResponse | None:

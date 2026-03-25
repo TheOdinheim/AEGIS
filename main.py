@@ -1121,9 +1121,15 @@ def _is_authenticated(request: Request) -> bool:
     if not _config or not _config.api_key:
         return False
     auth = request.headers.get("authorization", "")
+    token = ""
     if auth.startswith("Bearer "):
-        return hmac.compare_digest(auth[7:], _config.api_key)
-    return False
+        token = auth[7:].strip()
+    if not token:
+        token = (request.headers.get("x-api-key")
+                 or request.headers.get("X-Api-Key") or "").strip()
+    if not token:
+        return False
+    return hmac.compare_digest(token, _config.api_key)
 
 
 @app.get("/health")

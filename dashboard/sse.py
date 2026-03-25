@@ -30,13 +30,18 @@ def _is_sse_authenticated(request: Request) -> bool:
     if not m._config or not m._config.api_key:
         return False
     auth = request.headers.get("authorization", "")
+    token = ""
     if auth.startswith("Bearer "):
-        return hmac.compare_digest(auth[7:], m._config.api_key)
+        token = auth[7:].strip()
+    if not token:
+        token = (request.headers.get("x-api-key")
+                 or request.headers.get("X-Api-Key") or "").strip()
     # Also accept query param for EventSource (which can't set headers easily)
-    token = request.query_params.get("token", "")
-    if token:
-        return hmac.compare_digest(token, m._config.api_key)
-    return False
+    if not token:
+        token = request.query_params.get("token", "").strip()
+    if not token:
+        return False
+    return hmac.compare_digest(token, m._config.api_key)
 
 
 async def _event_generator(request: Request) -> AsyncGenerator[dict, None]:
