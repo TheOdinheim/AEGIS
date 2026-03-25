@@ -7,9 +7,16 @@ No authentication required. Pure inline HTML/CSS/JS.
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 router = APIRouter(tags=["landing"])
+
+_FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+    '<circle cx="16" cy="16" r="15" fill="#0a0e17" stroke="#3b82f6" stroke-width="1.5"/>'
+    '<path d="M16 6L8 26h3.5l1.8-4.5h5.4L20.5 26H24L16 6zm0 7.5l2 5h-4l2-5z" fill="#3b82f6"/>'
+    '</svg>'
+)
 
 _LANDING_HTML = r"""<!DOCTYPE html>
 <html lang="en">
@@ -17,6 +24,7 @@ _LANDING_HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AEGIS — The AI Immune System</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230a0e17' stroke='%233b82f6' stroke-width='1.5'/%3E%3Cpath d='M16 6L8 26h3.5l1.8-4.5h5.4L20.5 26H24L16 6zm0 7.5l2 5h-4l2-5z' fill='%233b82f6'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -353,3 +361,9 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
 async def landing_page(request: Request) -> HTMLResponse:
     """Serve the AEGIS product landing page."""
     return HTMLResponse(content=_LANDING_HTML)
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    """Serve the AEGIS favicon as SVG."""
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
