@@ -2,8 +2,8 @@
 FL Server — Federated Learning Aggregation Server.
 
 HTTP-based federated learning server running inside the AEGIS FastAPI app.
-Implements FedAvg: weighted average of client weight updates proportional
-to each client's training sample count.
+Implements FedAvg with optional Byzantine-resilient aggregation and trust-weighted
+updates via FederationImmuneResponse.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ class FLServer:
     Parameters:
         model: Global model to aggregate into.
         min_clients: Minimum client updates before aggregation.
+        immune_response: Optional FederationImmuneResponse for zero-trust aggregation.
     """
 
     def __init__(
@@ -33,6 +34,7 @@ class FLServer:
         *,
         min_clients: int = 1,
         rounds_completed: int = 0,
+        immune_response: Any | None = None,
     ) -> None:
         self._model = model
         self._min_clients = min_clients
@@ -41,6 +43,7 @@ class FLServer:
         self._round_active = False
         self._last_aggregation: str | None = None
         self._total_samples_trained: int = 0
+        self._immune_response = immune_response
 
     def get_global_model(self) -> dict[str, Any]:
         """Return current global model weights as JSON-serializable dict."""
@@ -92,25 +95,44 @@ class FLServer:
     def aggregate(self) -> dict[str, Any]:
         """Run FedAvg aggregation on collected updates.
 
-        Weighted average by number of samples each client trained on.
+        When immune_response is set, uses Byzantine-resilient aggregation
+        with trust-weighted updates. Otherwise falls back to standard FedAvg.
         """
         if not self._current_updates:
             return {"status": "no_updates", "round": self._rounds_completed}
 
         updates = self._current_updates
-        total_samples = sum(u["num_samples"] for u in updates)
-        if total_samples == 0:
-            total_samples = len(updates)  # Equal weight fallback
+        flagged_count = 0
 
-        # FedAvg: weighted average
-        n_params = len(updates[0]["weights"])
-        global_weights = []
-        for i in range(n_params):
-            weighted_sum = np.zeros_like(updates[0]["weights"][i], dtype=np.float64)
-            for u in updates:
-                w = u["num_samples"] if total_samples > 0 else 1
-                weighted_sum += u["weights"][i].astype(np.float64) * w
-            global_weights.append(weighted_sum / total_samples)
+        if self._immune_response is not None:
+            # Zero-trust aggregation path
+            global_weights = self._immune_response.aggregate_with_trust(updates)
+            if not global_weights:
+                self._current_updates = []
+                return {
+                    "status": "all_excluded",
+                    "round": self._rounds_completed,
+                    "clients": 0,
+                    "total_samples": 0,
+                    "global_loss": 0.0,
+                }
+            flagged_count = self._immune_response.byzantine.stats.get("flagged_updates", 0)
+        else:
+            # Standard FedAvg path
+            total_samples = sum(u["num_samples"] for u in updates)
+            if total_samples == 0:
+                total_samples = len(updates)
+
+            n_params = len(updates[0]["weights"])
+            global_weights = []
+            for i in range(n_params):
+                weighted_sum = np.zeros_like(updates[0]["weights"][i], dtype=np.float64)
+                for u in updates:
+                    w = u["num_samples"] if total_samples > 0 else 1
+                    weighted_sum += u["weights"][i].astype(np.float64) * w
+                global_weights.append(weighted_sum / total_samples)
+
+        total_samples = sum(u["num_samples"] for u in updates)
 
         # Apply to global model
         self._model.set_weights(global_weights)
@@ -136,13 +158,16 @@ class FLServer:
             self._rounds_completed, n_clients, total_samples, avg_loss,
         )
 
-        return {
+        result = {
             "status": "aggregated",
             "round": self._rounds_completed,
             "clients": n_clients,
             "total_samples": total_samples,
             "global_loss": round(avg_loss, 6),
         }
+        if flagged_count:
+            result["flagged_updates"] = flagged_count
+        return result
 
     def start_round(self) -> None:
         """Begin a new training round (clear pending updates)."""

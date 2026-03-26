@@ -21,11 +21,18 @@ class NodeRegistry:
 
     Parameters:
         active_threshold_seconds: Seconds since last heartbeat to consider active.
+        trust_scorer: Optional NodeTrustScorer for trust-aware node info.
     """
 
-    def __init__(self, *, active_threshold_seconds: int = _ACTIVE_THRESHOLD_SECONDS) -> None:
+    def __init__(
+        self,
+        *,
+        active_threshold_seconds: int = _ACTIVE_THRESHOLD_SECONDS,
+        trust_scorer: Any | None = None,
+    ) -> None:
         self._nodes: dict[str, dict[str, Any]] = {}
         self._active_threshold = active_threshold_seconds
+        self._trust_scorer = trust_scorer
 
     def register_node(self, node_id: str, metadata: dict[str, Any] | None = None) -> None:
         """Register or update a node."""
@@ -55,25 +62,34 @@ class NodeRegistry:
         node = self._nodes.get(node_id)
         if node is None:
             return None
-        return {
+        result = {
             **node,
             "is_active": self._is_active(node),
         }
+        if self._trust_scorer:
+            result["trust_score"] = self._trust_scorer.get_trust(node_id)
+        return result
 
     def get_active_nodes(self) -> list[dict[str, Any]]:
         """Get nodes that heartbeated within the active threshold."""
-        return [
-            {**n, "is_active": True}
-            for n in self._nodes.values()
-            if self._is_active(n)
-        ]
+        result = []
+        for n in self._nodes.values():
+            if self._is_active(n):
+                entry = {**n, "is_active": True}
+                if self._trust_scorer:
+                    entry["trust_score"] = self._trust_scorer.get_trust(n["node_id"])
+                result.append(entry)
+        return result
 
     def get_all_nodes(self) -> list[dict[str, Any]]:
         """Get all registered nodes."""
-        return [
-            {**n, "is_active": self._is_active(n)}
-            for n in self._nodes.values()
-        ]
+        result = []
+        for n in self._nodes.values():
+            entry = {**n, "is_active": self._is_active(n)}
+            if self._trust_scorer:
+                entry["trust_score"] = self._trust_scorer.get_trust(n["node_id"])
+            result.append(entry)
+        return result
 
     def _is_active(self, node: dict[str, Any]) -> bool:
         return (time.time() - node.get("last_heartbeat", 0)) < self._active_threshold

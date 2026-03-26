@@ -212,6 +212,10 @@ from aegis.layers.temporal.correlation_engine import TemporalCorrelationEngine
 from aegis.layers.temporal.snapshot_manager import CleanStateSnapshotManager
 from aegis.layers.temporal.date_scanner import DateTriggeredAnomalyScanner
 from aegis.layers.correlation.engine import CampaignCorrelationEngine
+from aegis.services.federated.byzantine import ByzantineResilientAggregator
+from aegis.services.federated.indicator_reputation import IndicatorReputationScorer
+from aegis.services.federated.node_trust import NodeTrustScorer
+from aegis.services.federated.immune_response import FederationImmuneResponse
 from aegis.layers.output.coherence_analyzer import ReasoningCoherenceAnalyzer
 from aegis.layers.output.length_anomaly_detector import ReasoningLengthAnomalyDetector
 from aegis.layers.output.alignment_validator import ReasoningOutputAlignmentValidator
@@ -259,6 +263,7 @@ _fl_dp_tracker: GradientPrivacyTracker | None = None
 _fl_server: FLServer | None = None
 _fl_client: FLClient | None = None
 _fl_scheduler: FLScheduler | None = None
+_federation_immune: FederationImmuneResponse | None = None
 _deep_health: DeepHealthMonitor | None = None
 _config_validation: ConfigValidationResult | None = None
 _vault_backup: VaultBackupManager | None = None
@@ -315,6 +320,7 @@ def _init_layers(
     global _dependency_analyzer, _sc_validation_cache, _revalidation_scheduler
     global _traffic_generator, _bbe, _canary_system, _mpr, _tce
     global _snapshot_manager, _date_scanner, _campaign_engine
+    global _federation_immune
 
     _config = config or get_config()
     data_dir = Path(__file__).parent / "data"
@@ -480,7 +486,17 @@ def _init_layers(
         privacy_budget=float(os.environ.get("AEGIS_DP_BUDGET", "100.0")),
     )
     _indicator_registry = IndicatorRegistry()
-    _node_registry = NodeRegistry()
+
+    # L8 Zero Trust Hardening
+    _byzantine = ByzantineResilientAggregator(method="trimmed_mean")
+    _ind_reputation = IndicatorReputationScorer()
+    _node_trust = NodeTrustScorer()
+    _federation_immune = FederationImmuneResponse(
+        byzantine=_byzantine,
+        reputation=_ind_reputation,
+        trust=_node_trust,
+    )
+    _node_registry = NodeRegistry(trust_scorer=_node_trust)
 
     # L8 Federated Model Training
     global _fl_model, _fl_training_buffer, _fl_dp_tracker, _fl_server, _fl_client
@@ -493,7 +509,7 @@ def _init_layers(
         delta=float(os.environ.get("AEGIS_DP_DELTA", "1e-5")),
         total_budget=float(os.environ.get("AEGIS_DP_BUDGET", "100.0")),
     )
-    _fl_server = FLServer(_fl_model, min_clients=1)
+    _fl_server = FLServer(_fl_model, min_clients=1, immune_response=_federation_immune)
     _fl_client = FLClient(
         _fl_model, _fl_training_buffer, _fl_dp_tracker,
         node_id=os.environ.get("AEGIS_INSTANCE_ID", "local"),

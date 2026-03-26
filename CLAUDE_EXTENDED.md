@@ -1274,3 +1274,56 @@ Privacy-preserving federated model training. Multiple AEGIS deployments collabor
 - Uses vault `_embed()` for MiniLM embedding generation
 
 **Test count**: 3290 passing (3228 + 62), 0 skipped.
+
+---
+
+## L8 Federation Zero Trust Hardening
+
+Four interlocking defense mechanisms ensuring no federation participant is blindly trusted.
+
+### Component 1: Byzantine-Resilient Aggregation (`services/federated/byzantine.py`)
+
+Replaces naive FedAvg with robust aggregation that tolerates malicious/faulty participants:
+- **Trimmed Mean** (default): Sort per-parameter, trim top/bottom 10%, average rest
+- **Krum**: Select update most consistent with majority (min sum of distances to n-f-2 nearest)
+- **Multi-Krum**: Select top k by Krum score, average
+- **FedAvg**: Standard weighted average fallback
+- **Anomaly detection**: Flags updates by L2 norm (median + σ*MAD) and cosine similarity
+
+### Component 2: Indicator Reputation Scoring (`services/federated/indicator_reputation.py`)
+
+Four-factor weighted trust scoring for every submitted indicator:
+- **Source trust (40%)**: Node trust score of submitter
+- **Consistency (25%)**: Cross-source corroboration by embedding similarity
+- **Pattern validity (20%)**: Structural STIX checks (type, ID, pattern, embedding, MITRE)
+- **Temporal coherence (15%)**: Burst/flood detection per source
+- Accept threshold: 0.4, Quarantine threshold: 0.2
+- Quarantined indicators stored separately, releasable via API
+
+### Component 3: Node Trust Scoring (`services/federated/node_trust.py`)
+
+Earn/decay model (0.0–1.0, initial 0.3):
+- **Positive**: valid indicator (+0.02), clean FL update (+0.01), heartbeat (+0.001)
+- **Negative**: Byzantine flagged (-0.10), quarantined indicator (-0.05), invalid indicator (-0.03)
+- **Decay**: 0.001/hour of inactivity
+- **Gates**: min 0.2 for FL participation, min 0.15 for indicator submission
+
+### Component 4: Federation Immune Response (`services/federated/immune_response.py`)
+
+Coordinated defense orchestrator tying all components together:
+- `screen_fl_updates()`: Trust filter → Byzantine detection → penalize/reward → escalation check
+- `screen_indicator()`: Node trust as source_trust → reputation scoring → trust update
+- `aggregate_with_trust()`: Full pipeline → trust-weighted FedAvg
+- Escalation triggered when >50% of FL updates flagged in a round
+
+### Integration Points
+
+- **FLServer**: `immune_response` parameter enables zero-trust aggregation path
+- **NodeRegistry**: `trust_scorer` parameter adds trust_score to all node queries
+- **Hub API**: Indicators screened before acceptance; 3 new endpoints:
+  - `GET /v1/federation/quarantined` — quarantined indicators
+  - `GET /v1/federation/trust` — node trust scores
+  - `GET /v1/federation/immune/stats` — immune response statistics
+- **Dashboard**: Byzantine method, avg node trust, quarantine count, escalation status
+
+**Test count**: 3349 passing (3290 + 59), 0 skipped.

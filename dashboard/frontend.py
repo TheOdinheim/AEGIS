@@ -416,6 +416,22 @@ function App(){
                 <span style={{color:'var(--text2)'}}>Samples Trained</span>
                 <span>{overview?.federation?.fl_samples_trained||0}</span>
               </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Byzantine Defense</span>
+                <span>{overview?.federation?.byzantine_method||'trimmed_mean'}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Avg Node Trust</span>
+                <span style={{color:overview?.federation?.avg_node_trust>=0.5?'var(--green)':overview?.federation?.avg_node_trust>=0.2?'var(--yellow)':'var(--red)'}}>{overview?.federation?.avg_node_trust?.toFixed(3)||'0.300'}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Quarantined</span>
+                <span style={{color:overview?.federation?.quarantine_size>0?'var(--yellow)':'var(--text1)'}}>{overview?.federation?.quarantine_size||0}</span>
+              </div>
+              {overview?.federation?.escalation_active&&<div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--red)'}}>ESCALATION ACTIVE</span>
+                <span style={{color:'var(--red)'}}>!</span>
+              </div>}
             </div>
           </div>
 

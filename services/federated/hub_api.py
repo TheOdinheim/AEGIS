@@ -78,6 +78,23 @@ async def submit_indicator(request: Request) -> JSONResponse:
     if not body.get("pattern"):
         return JSONResponse(status_code=400, content={"error": "Indicator must have a pattern"})
 
+    # Screen indicator through immune response if available
+    from aegis.dashboard import _get_main
+    m = _get_main()
+    immune = getattr(m, "_federation_immune", None)
+    source_node = body.get("x_aegis_source_node", "unknown")
+    if immune:
+        rep_score = immune.screen_indicator(body, source_node)
+        if not rep_score.accepted:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "rejected",
+                    "score": rep_score.overall,
+                    "reasons": rep_score.reasons,
+                },
+            )
+
     try:
         ind_id = registry.add_indicator(body)
     except Exception as e:
@@ -85,8 +102,6 @@ async def submit_indicator(request: Request) -> JSONResponse:
         return JSONResponse(status_code=500, content={"error": "Failed to store indicator"})
 
     # Publish event
-    from aegis.dashboard import _get_main
-    m = _get_main()
     if m._event_bus:
         try:
             from aegis.services.event_bus import Event
@@ -224,8 +239,79 @@ async def node_heartbeat(request: Request) -> JSONResponse:
     stats = node_registry.get_network_stats()
     indicator_count = registry.get_stats()["total"] if registry else 0
 
+    # Record heartbeat in trust scorer
+    from aegis.dashboard import _get_main
+    m = _get_main()
+    immune = getattr(m, "_federation_immune", None)
+    if immune:
+        immune.trust.record_positive(node_id, "heartbeat")
+
     return JSONResponse(content={
         "status": "ok",
         "network_size": stats["active_nodes"],
         "indicators_available": indicator_count,
     })
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/federation/quarantined
+# ---------------------------------------------------------------------------
+
+@router.get("/quarantined")
+async def list_quarantined(request: Request) -> JSONResponse:
+    """List quarantined indicators."""
+    err, registry, _, _ = _get_auth_and_components(request)
+    if err:
+        return err
+
+    from aegis.dashboard import _get_main
+    m = _get_main()
+    immune = getattr(m, "_federation_immune", None)
+    if not immune:
+        return JSONResponse(content={"quarantined": [], "total": 0})
+
+    items = immune.reputation.get_quarantined()
+    return JSONResponse(content={"quarantined": items, "total": len(items)})
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/federation/trust
+# ---------------------------------------------------------------------------
+
+@router.get("/trust")
+async def node_trust_scores(request: Request) -> JSONResponse:
+    """Get node trust scores."""
+    err, _, _, _ = _get_auth_and_components(request)
+    if err:
+        return err
+
+    from aegis.dashboard import _get_main
+    m = _get_main()
+    immune = getattr(m, "_federation_immune", None)
+    if not immune:
+        return JSONResponse(content={"scores": {}, "stats": {}})
+
+    return JSONResponse(content={
+        "scores": immune.trust.get_all_scores(),
+        "stats": immune.trust.stats,
+    })
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/federation/immune/stats
+# ---------------------------------------------------------------------------
+
+@router.get("/immune/stats")
+async def immune_stats(request: Request) -> JSONResponse:
+    """Federation immune response statistics."""
+    err, _, _, _ = _get_auth_and_components(request)
+    if err:
+        return err
+
+    from aegis.dashboard import _get_main
+    m = _get_main()
+    immune = getattr(m, "_federation_immune", None)
+    if not immune:
+        return JSONResponse(content={"status": "not_initialized"})
+
+    return JSONResponse(content=immune.stats)
