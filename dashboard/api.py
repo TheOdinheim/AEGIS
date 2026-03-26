@@ -168,6 +168,9 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "indicators_received": 0,
             "active_nodes": 0,
             "privacy_budget_remaining": 100.0,
+            "fl_rounds": 0,
+            "fl_model_version": "v0",
+            "fl_samples_trained": 0,
         }
         try:
             fed = getattr(m, "_federated", None)
@@ -180,6 +183,12 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             if node_reg:
                 net_stats = node_reg.get_network_stats()
                 federation["active_nodes"] = net_stats.get("active_nodes", 0)
+            fl_server = getattr(m, "_fl_server", None)
+            if fl_server:
+                fl_status = fl_server.get_status()
+                federation["fl_rounds"] = fl_status.get("round", 0)
+                federation["fl_model_version"] = fl_status.get("model_version", "v0")
+                federation["fl_samples_trained"] = fl_status.get("total_samples_trained", 0)
         except Exception:
             pass
 
@@ -202,7 +211,7 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "quarantined_sessions": quarantined,
             "federation": federation,
             "uptime_seconds": round(time.time() - m._dashboard_start_time, 1),
-            "test_count": 3228,
+            "test_count": 3290,
             "version": "2.0.0",
         })
     except Exception as e:

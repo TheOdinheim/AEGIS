@@ -1223,3 +1223,54 @@ Privacy-preserving federated threat intelligence network. Novel attacks detected
 | `/v1/federation/heartbeat` | POST | Node heartbeat with metadata |
 
 **Test count**: 3228 passing (3139 + 89), 0 skipped.
+
+---
+
+## L8 Federated Model Training (Flower-equivalent)
+
+Privacy-preserving federated model training. Multiple AEGIS deployments collaboratively improve a lightweight prompt injection classifier without sharing raw data. Each node trains locally on embeddings from confirmed detections, shares DP-protected gradient updates, and receives an improved global model via FedAvg.
+
+### Architecture
+
+- **Model**: 2-layer numpy neural network (384→128→1, ReLU+Sigmoid). Supplements DeBERTa, not replaces it.
+- **Training data**: Confirmed detections (blocked attacks, passed benign requests) stored as (embedding, label) pairs in `TrainingBuffer` (FIFO, max 10k samples).
+- **DP protection**: Gradient clipping (L2 norm) + Gaussian noise via `GradientPrivacyTracker`. Budget tracked across rounds.
+- **Aggregation**: FedAvg — weighted average by sample count. HTTP-based, no Flower dependency.
+- **Scheduling**: Every 6h by default. Disabled during tests (`AEGIS_SKIP_MODEL_LOAD`).
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `services/federated/fl_model.py` | Numpy 2-layer classifier (Xavier init, BCE loss, SGD) |
+| `services/federated/training_buffer.py` | Embedding/label buffer (FIFO eviction, JSON persistence) |
+| `services/federated/dp_gradients.py` | Gradient clipping, Gaussian noise, budget tracking |
+| `services/federated/fl_server.py` | FedAvg aggregation server (weighted avg, auto-aggregate) |
+| `services/federated/fl_client.py` | Local training client (train, DP-protect, submit) |
+| `services/federated/fl_api.py` | 4 API endpoints at `/v1/federation/fl/` |
+| `services/federated/fl_scheduler.py` | Asyncio-based training round scheduler (6h default) |
+| `tests/test_federation_fl.py` | 62 tests covering all FL components |
+
+### Modified Files
+
+- `main.py` — imports, globals (`_fl_model`, `_fl_training_buffer`, `_fl_dp_tracker`, `_fl_server`, `_fl_client`, `_fl_scheduler`), router mount, lifespan wiring, training sample collection in request handler
+- `dashboard/api.py` — FL stats in federation section (fl_rounds, fl_model_version, fl_samples_trained)
+- `dashboard/frontend.py` — FL Rounds, Model Version, Samples Trained in side panel
+
+### FL API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/v1/federation/fl/model` | GET | Current global model weights |
+| `/v1/federation/fl/update` | POST | Submit local training update |
+| `/v1/federation/fl/trigger-round` | POST | Manual aggregation trigger |
+| `/v1/federation/fl/status` | GET | Server status (round, clients, model version) |
+
+### Training Sample Collection
+
+- Collected asynchronously after response finalization (zero latency impact)
+- Blocked attacks (innate confidence > 0.85): `is_threat=True`
+- Passed benign requests (all layers passed): `is_threat=False`
+- Uses vault `_embed()` for MiniLM embedding generation
+
+**Test count**: 3290 passing (3228 + 62), 0 skipped.

@@ -404,6 +404,18 @@ function App(){
                 <span style={{color:'var(--text2)'}}>Privacy Budget</span>
                 <span>{overview?.federation?.privacy_budget_remaining?.toFixed(1)||'100.0'}</span>
               </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>FL Rounds</span>
+                <span>{overview?.federation?.fl_rounds||0}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Model Version</span>
+                <span>{overview?.federation?.fl_model_version||'v0'}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Samples Trained</span>
+                <span>{overview?.federation?.fl_samples_trained||0}</span>
+              </div>
             </div>
           </div>
 

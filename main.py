@@ -63,9 +63,16 @@ from aegis.layers.agent_security import AgentSecurityLayer, AgentSecurityResult
 from aegis.services.compliance import ComplianceEngine
 from aegis.services.federated import FederatedIntelligenceManager
 from aegis.services.federated.hub_api import router as federation_router
+from aegis.services.federated.fl_api import router as fl_router
 from aegis.services.federated.indicator_registry import IndicatorRegistry
 from aegis.services.federated.node_registry import NodeRegistry
 from aegis.services.federated.pipeline import FederationPipeline
+from aegis.services.federated.fl_model import FederatedClassifier
+from aegis.services.federated.training_buffer import TrainingBuffer
+from aegis.services.federated.dp_gradients import GradientPrivacyTracker
+from aegis.services.federated.fl_server import FLServer
+from aegis.services.federated.fl_client import FLClient
+from aegis.services.federated.fl_scheduler import FLScheduler
 from aegis.services.deployment import (
     ConfigValidator, ConfigValidationResult,
     VaultBackupManager, DeepHealthMonitor,
@@ -246,6 +253,12 @@ _federated: FederatedIntelligenceManager | None = None
 _indicator_registry: IndicatorRegistry | None = None
 _node_registry: NodeRegistry | None = None
 _federation_pipeline: FederationPipeline | None = None
+_fl_model: FederatedClassifier | None = None
+_fl_training_buffer: TrainingBuffer | None = None
+_fl_dp_tracker: GradientPrivacyTracker | None = None
+_fl_server: FLServer | None = None
+_fl_client: FLClient | None = None
+_fl_scheduler: FLScheduler | None = None
 _deep_health: DeepHealthMonitor | None = None
 _config_validation: ConfigValidationResult | None = None
 _vault_backup: VaultBackupManager | None = None
@@ -468,6 +481,23 @@ def _init_layers(
     )
     _indicator_registry = IndicatorRegistry()
     _node_registry = NodeRegistry()
+
+    # L8 Federated Model Training
+    global _fl_model, _fl_training_buffer, _fl_dp_tracker, _fl_server, _fl_client
+    _fl_model = FederatedClassifier()
+    _fl_training_buffer = TrainingBuffer(
+        max_size=int(os.environ.get("AEGIS_FL_BUFFER_MAX_SIZE", "10000")),
+    )
+    _fl_dp_tracker = GradientPrivacyTracker(
+        epsilon_per_round=float(os.environ.get("AEGIS_DP_EPSILON", "3.0")),
+        delta=float(os.environ.get("AEGIS_DP_DELTA", "1e-5")),
+        total_budget=float(os.environ.get("AEGIS_DP_BUDGET", "100.0")),
+    )
+    _fl_server = FLServer(_fl_model, min_clients=1)
+    _fl_client = FLClient(
+        _fl_model, _fl_training_buffer, _fl_dp_tracker,
+        node_id=os.environ.get("AEGIS_INSTANCE_ID", "local"),
+    )
 
     # Multimodal preprocessor (config-gated, zero overhead when disabled)
     _multimodal = MultimodalPreprocessor(
@@ -920,6 +950,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         await _federation_pipeline.start()
 
+    # Start FL training scheduler (6h rounds, only if not in test mode)
+    global _fl_scheduler
+    if _fl_server and _fl_client and not os.environ.get("AEGIS_SKIP_MODEL_LOAD"):
+        _fl_scheduler = FLScheduler(
+            _fl_server, _fl_client,
+            interval_hours=float(os.environ.get("AEGIS_FL_INTERVAL_HOURS", "6.0")),
+        )
+        await _fl_scheduler.start()
+
     # Start re-validation scheduler (Extension 3.5)
     if _revalidation_scheduler:
         await _revalidation_scheduler.start()
@@ -1047,7 +1086,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _revalidation_scheduler:
         await _revalidation_scheduler.stop()
 
-    # Stop federation pipeline and scheduler
+    # Stop federation pipeline, FL scheduler, and federated scheduler
+    if _fl_scheduler:
+        await _fl_scheduler.stop()
     if _federation_pipeline:
         await _federation_pipeline.stop()
     if _federated:
@@ -1131,6 +1172,7 @@ app = FastAPI(
 # Mount landing page, dashboard, and federation routers
 app.include_router(landing_router)
 app.include_router(federation_router)
+app.include_router(fl_router)
 app.include_router(dashboard_api_router)
 app.include_router(dashboard_sse_router)
 app.include_router(dashboard_frontend_router)
@@ -3179,6 +3221,7 @@ async def _process_request(request: Request, request_id: str) -> Response:
                     if sr.is_threat
                 ],
             )
+        _collect_fl_training_sample(context, is_threat=True, confidence=innate_report.max_confidence)
         return _block_response(request_id, "Request blocked by AEGIS innate detection.")
 
     # --- MTMD: Record turn and check for manipulation patterns ---
@@ -3483,6 +3526,32 @@ def _record_distillation_interaction(
     )
 
 
+def _collect_fl_training_sample(
+    context, is_threat: bool, confidence: float = 0.0,
+) -> None:
+    """Collect a training sample for federated model training (async, no latency).
+
+    Only collects samples with high-confidence labels:
+    - Blocked attacks with innate confidence > 0.85
+    - Benign requests that passed all layers
+    """
+    if not _fl_training_buffer or not _vault:
+        return
+    if is_threat and confidence < 0.85:
+        return  # Only high-confidence attack labels
+    try:
+        prompt = context.prompt_text or context.last_user_message or ""
+        if not prompt:
+            return
+        if hasattr(_vault, "_embed"):
+            embedding = _vault._embed(prompt)
+        else:
+            return
+        _fl_training_buffer.add_sample(embedding, is_threat)
+    except Exception:
+        pass  # Never fail the request path
+
+
 async def _run_adaptive(context, innate_report):
     """Run adaptive analysis and track latency."""
     with_latency = time.perf_counter()
@@ -3602,6 +3671,7 @@ async def _handle_non_streaming(
                 confidence=adaptive_report.mcav_score,
                 blocked=True,
             )
+        _collect_fl_training_sample(context, is_threat=True, confidence=adaptive_report.mcav_score)
         return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
 
     # --- Canary verification on output ---
@@ -3934,6 +4004,9 @@ async def _handle_non_streaming(
             was_refused=False,
             tools_invoked=tool_calls or None,
         ))
+
+    # --- FL training sample collection (benign, async, zero latency) ---
+    _collect_fl_training_sample(context, is_threat=False)
 
     return JSONResponse(content=upstream_response)
 
