@@ -1182,3 +1182,44 @@ Product landing page served at `/` (root route). Pure inline HTML/CSS/JS, no ext
 **Files modified**: `main.py` (import and mount landing router)
 
 **Test count**: 3145 passing (3134 + 11), 0 skipped.
+
+---
+
+## L8 Federated Threat Intelligence Hub — Indicator Sharing
+
+Privacy-preserving federated threat intelligence network. Novel attacks detected by one AEGIS instance generate anonymized STIX 2.1 indicators shared across all instances.
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `services/federated/stix_generator.py` | STIX 2.1 Indicator/Relationship/Bundle generation from detections |
+| `services/federated/indicator_registry.py` | In-memory STIX store, cosine dedup (0.95), dormant lifecycle (180d) |
+| `services/federated/node_registry.py` | Federation node tracking via heartbeats (15min active threshold) |
+| `services/federated/hub_api.py` | 5 API endpoints at `/v1/federation/` (submit, list, get, stats, heartbeat) |
+| `services/federated/pipeline.py` | Event bus → STIX pipeline (novel attacks only, DP noise, async) |
+| `tests/test_federation_hub.py` | 83 tests covering all hub components |
+
+### Modified Files
+
+- `main.py` — imports, globals (`_indicator_registry`, `_node_registry`, `_federation_pipeline`), router mount, pipeline lifecycle
+- `dashboard/api.py` — federation stats in overview + new `/dashboard/api/federation` endpoint
+- `dashboard/frontend.py` — Federation/Herd Immunity side panel section
+- `dashboard/landing.py` — "Seven Layers" → "Eight Layers" (3 places)
+- `tests/test_landing.py` — updated assertion to match "Eight Layers"
+
+### Pipeline Flow
+
+`threat_detected` event → FederationPipeline → check is_novel/adaptive_caught → get/generate embedding → DP noise (Gaussian, ε=3) → STIX indicator → IndicatorRegistry (dedup) → publish `indicator_generated` event
+
+### Hub API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/v1/federation/indicators` | POST | Submit STIX indicator (validates type, id, pattern) |
+| `/v1/federation/indicators` | GET | List indicators (since, limit params; strips embeddings) |
+| `/v1/federation/indicators/{id}` | GET | Single indicator lookup |
+| `/v1/federation/stats` | GET | Network-wide stats (indicators, nodes, privacy) |
+| `/v1/federation/heartbeat` | POST | Node heartbeat with metadata |
+
+**Test count**: 3228 passing (3139 + 89), 0 skipped.

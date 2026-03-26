@@ -161,6 +161,28 @@ async def dashboard_overview(request: Request) -> JSONResponse:
         except Exception:
             pass
 
+        # Federation stats
+        federation = {
+            "status": "active",
+            "indicators_shared": 0,
+            "indicators_received": 0,
+            "active_nodes": 0,
+            "privacy_budget_remaining": 100.0,
+        }
+        try:
+            fed = getattr(m, "_federated", None)
+            if fed:
+                fed_stats = fed.stats
+                federation["indicators_shared"] = fed_stats.get("indicators_shared", 0)
+                federation["indicators_received"] = fed_stats.get("indicators_received", 0)
+                federation["privacy_budget_remaining"] = fed_stats.get("privacy_budget_remaining", 100.0)
+            node_reg = getattr(m, "_node_registry", None)
+            if node_reg:
+                net_stats = node_reg.get_network_stats()
+                federation["active_nodes"] = net_stats.get("active_nodes", 0)
+        except Exception:
+            pass
+
         return JSONResponse(content={
             "threat_level": {"level": tli_name, "value": int(tli_value)},
             "requests": {
@@ -178,8 +200,9 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "circuit_breakers": breakers,
             "vault_size": vault_size,
             "quarantined_sessions": quarantined,
+            "federation": federation,
             "uptime_seconds": round(time.time() - m._dashboard_start_time, 1),
-            "test_count": 3139,
+            "test_count": 3228,
             "version": "2.0.0",
         })
     except Exception as e:
@@ -353,3 +376,50 @@ async def dashboard_timeseries(
         "period": period,
         "buckets": buckets,
     })
+
+
+# ---------------------------------------------------------------------------
+# GET /dashboard/api/federation
+# ---------------------------------------------------------------------------
+
+
+@router.get("/federation")
+async def dashboard_federation(request: Request) -> JSONResponse:
+    """Detailed federation view for the dashboard."""
+    err = _auth_or_401(request)
+    if err:
+        return err
+
+    m = _get_main()
+
+    result: dict[str, Any] = {
+        "indicators": [],
+        "nodes": [],
+        "privacy_budget": {},
+        "pipeline": {},
+        "registry_stats": {},
+        "network_stats": {},
+    }
+
+    try:
+        registry = getattr(m, "_indicator_registry", None)
+        if registry:
+            result["indicators"] = registry.get_all_indicators()
+            result["registry_stats"] = registry.get_stats()
+
+        node_reg = getattr(m, "_node_registry", None)
+        if node_reg:
+            result["nodes"] = node_reg.get_all_nodes()
+            result["network_stats"] = node_reg.get_network_stats()
+
+        fed = getattr(m, "_federated", None)
+        if fed:
+            result["privacy_budget"] = fed.dp_engine.get_budget_status().to_dict()
+
+        pipeline = getattr(m, "_federation_pipeline", None)
+        if pipeline:
+            result["pipeline"] = pipeline.stats
+    except Exception as e:
+        logger.debug("Federation dashboard data error: %s", e)
+
+    return JSONResponse(content=result)

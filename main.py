@@ -62,6 +62,10 @@ from aegis.layers.supply_chain import SupplyChainVerifier
 from aegis.layers.agent_security import AgentSecurityLayer, AgentSecurityResult
 from aegis.services.compliance import ComplianceEngine
 from aegis.services.federated import FederatedIntelligenceManager
+from aegis.services.federated.hub_api import router as federation_router
+from aegis.services.federated.indicator_registry import IndicatorRegistry
+from aegis.services.federated.node_registry import NodeRegistry
+from aegis.services.federated.pipeline import FederationPipeline
 from aegis.services.deployment import (
     ConfigValidator, ConfigValidationResult,
     VaultBackupManager, DeepHealthMonitor,
@@ -239,6 +243,9 @@ _threat_intel: ThreatIntelManager | None = None
 _agent_security: AgentSecurityLayer | None = None
 _compliance: ComplianceEngine | None = None
 _federated: FederatedIntelligenceManager | None = None
+_indicator_registry: IndicatorRegistry | None = None
+_node_registry: NodeRegistry | None = None
+_federation_pipeline: FederationPipeline | None = None
 _deep_health: DeepHealthMonitor | None = None
 _config_validation: ConfigValidationResult | None = None
 _vault_backup: VaultBackupManager | None = None
@@ -459,6 +466,8 @@ def _init_layers(
         delta=float(os.environ.get("AEGIS_DP_DELTA", "1e-5")),
         privacy_budget=float(os.environ.get("AEGIS_DP_BUDGET", "100.0")),
     )
+    _indicator_registry = IndicatorRegistry()
+    _node_registry = NodeRegistry()
 
     # Multimodal preprocessor (config-gated, zero overhead when disabled)
     _multimodal = MultimodalPreprocessor(
@@ -900,6 +909,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _federated:
         _federated.start_scheduler()
 
+    # Start federation pipeline (event bus → indicator generation)
+    global _federation_pipeline
+    if _federated and _indicator_registry:
+        _federation_pipeline = FederationPipeline(
+            federated=_federated,
+            indicator_registry=_indicator_registry,
+            event_bus=_event_bus,
+            vault=_vault,
+        )
+        await _federation_pipeline.start()
+
     # Start re-validation scheduler (Extension 3.5)
     if _revalidation_scheduler:
         await _revalidation_scheduler.start()
@@ -1027,7 +1047,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if _revalidation_scheduler:
         await _revalidation_scheduler.stop()
 
-    # Stop federated scheduler
+    # Stop federation pipeline and scheduler
+    if _federation_pipeline:
+        await _federation_pipeline.stop()
     if _federated:
         _federated.stop_scheduler()
 
@@ -1106,8 +1128,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Mount landing page and dashboard routers
+# Mount landing page, dashboard, and federation routers
 app.include_router(landing_router)
+app.include_router(federation_router)
 app.include_router(dashboard_api_router)
 app.include_router(dashboard_sse_router)
 app.include_router(dashboard_frontend_router)

@@ -152,7 +152,7 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
     <div class="hero-sub">Adaptive Enterprise Guard for Intelligent Systems</div>
     <p class="hero-desc">
       The first AI security platform built on the architecture of the human biological
-      immune system. Seven layers of adaptive defense that learn, evolve, and heal &mdash;
+      immune system. Eight layers of adaptive defense that learn, evolve, and heal &mdash;
       protecting every AI interaction in real time.
     </p>
     <div class="hero-buttons">
@@ -186,7 +186,7 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
 <section id="architecture">
   <div class="container">
     <div class="section-label fade-in">The Architecture</div>
-    <h2 class="section-title fade-in">Seven Layers. One Immune System.</h2>
+    <h2 class="section-title fade-in">Eight Layers. One Immune System.</h2>
     <div class="section-subtitle fade-in">Modeled on the human biological immune system. Each layer operates independently under assumed-breach posture &mdash; no layer trusts another layer's verdict.</div>
     <div class="layers-stack fade-in">
       <div class="layer-row">
@@ -309,7 +309,7 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
       </div>
       <div class="step-card">
         <div class="step-num">2</div>
-        <div class="step-title">Seven layers defend every request</div>
+        <div class="step-title">Eight layers defend every request</div>
         <div class="step-desc">Every prompt and response flows through adaptive innate and learned defenses in real time. 30&ndash;150ms total overhead.</div>
       </div>
       <div class="step-card">

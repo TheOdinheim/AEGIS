@@ -386,6 +386,28 @@ function App(){
           </div>
 
           <div className="side-section">
+            <div className="side-section-title">{bioMode?'Herd Immunity':'Federation (L8)'}</div>
+            <div style={{marginBottom:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Status</span>
+                <span style={{color:'var(--green)'}}>{overview?.federation?.status||'active'}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Indicators Shared</span>
+                <span>{overview?.federation?.indicators_shared||0}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Active Nodes</span>
+                <span>{overview?.federation?.active_nodes||0}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span style={{color:'var(--text2)'}}>Privacy Budget</span>
+                <span>{overview?.federation?.privacy_budget_remaining?.toFixed(1)||'100.0'}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="side-section">
             <div className="side-section-title">Circuit Breakers</div>
             {(overview?.circuit_breakers||[]).length>0?(
               overview.circuit_breakers.map((cb,i)=>(

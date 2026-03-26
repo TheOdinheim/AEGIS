@@ -37,7 +37,7 @@ class TestLandingPage:
         from main import app
         client = TestClient(app)
         text = client.get("/").text
-        assert "Seven Layers" in text
+        assert "Eight Layers" in text
         assert "L1" in text
         assert "L7" in text
         assert "Barrier Layer" in text

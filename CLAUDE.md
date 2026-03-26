@@ -168,7 +168,7 @@ aegis/
 │   ├── metrics_buffer.py            # In-memory rolling time-series buffer (5s sample, 1h retention)
 │   ├── sse.py                       # SSE event stream endpoint (real-time push via event bus)
 │   └── frontend.py                  # React SPA served as single HTML page
-├── tests/                           # 3139+ tests across 40+ test files
+├── tests/                           # 3228+ tests across 40+ test files
 ├── red_team/                        # Adversarial testing: 6 APT campaigns, multimodal APT, white-box
 ├── demo/                            # Interactive 6-scenario demo (requires Ollama)
 ├── docs/                            # Threat model (23 threats), deployment guide
@@ -268,7 +268,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-23)
 
-- Tests: 3139 passing, 0 failed, 0 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
+- Tests: 3228 passing, 0 failed, 0 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
