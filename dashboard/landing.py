@@ -245,6 +245,14 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
           <div class="layer-bio">Wound Healing &amp; Tissue Repair &mdash; Circuit breakers, fallback routing, session quarantine</div>
         </div>
       </div>
+      <div class="layer-row">
+        <span class="layer-id">L8</span>
+        <span class="layer-dot"></span>
+        <div class="layer-info">
+          <div class="layer-tech">Federated Intelligence</div>
+          <div class="layer-bio">Herd Immunity &mdash; Privacy-preserving threat sharing, federated model training, Byzantine-resilient aggregation</div>
+        </div>
+      </div>
     </div>
     <p class="layers-note fade-in">Every layer communicates through an event bus. Detection at one layer automatically strengthens all others.</p>
   </div>
@@ -257,7 +265,7 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
     <div class="section-subtitle fade-in">Every claim is backed by automated tests, adversarial red teaming, and reproducible benchmarks.</div>
     <div class="metrics-grid fade-in">
       <div class="metric-card">
-        <div class="metric-value">3,139</div>
+        <div class="metric-value">3,394</div>
         <div class="metric-label">Tests</div>
         <div class="metric-detail">Zero failures. Zero skips.</div>
       </div>
@@ -272,9 +280,9 @@ footer{border-top:1px solid var(--border);padding:40px 0;text-align:center}
         <div class="metric-detail">500 benign business prompts</div>
       </div>
       <div class="metric-card">
-        <div class="metric-value">2</div>
+        <div class="metric-value">3</div>
         <div class="metric-label">Red Team Phases</div>
-        <div class="metric-detail">15 findings, all fixed</div>
+        <div class="metric-detail">16 findings, all fixed</div>
       </div>
     </div>
   </div>

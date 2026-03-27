@@ -219,7 +219,7 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "quarantined_sessions": quarantined,
             "federation": federation,
             "uptime_seconds": round(time.time() - m._dashboard_start_time, 1),
-            "test_count": 3374,
+            "test_count": 3394,
             "version": "2.0.0",
         })
     except Exception as e:

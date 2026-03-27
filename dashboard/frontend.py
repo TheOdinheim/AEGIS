@@ -479,10 +479,10 @@ function App(){
           <div className="side-section">
             <div className="side-section-title">Test Validation</div>
             <div style={{marginBottom:8}}>
-              <span className="badge">{(overview?.test_count||3139).toLocaleString()} passing</span>
+              <span className="badge">{(overview?.test_count||3394).toLocaleString()} passing</span>
             </div>
             <div style={{fontSize:12,color:'var(--text2)'}}>
-              Red team: 15 findings, all fixed<br/>
+              Red team: 16 findings, all fixed<br/>
               Zero false positives on 500 benign prompts
             </div>
           </div>

@@ -47,7 +47,7 @@ class TestLandingPage:
         from main import app
         client = TestClient(app)
         text = client.get("/").text
-        assert "3,139" in text
+        assert "3,394" in text
         assert "96.36%" in text
         assert "0%" in text
 
