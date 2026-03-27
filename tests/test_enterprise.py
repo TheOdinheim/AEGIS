@@ -926,7 +926,9 @@ class TestAdminAPIEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["valid"] is True
-        assert "test warning" in data["warnings"]
+        # RT-P3B-004: warnings are now redacted to opaque labels
+        assert len(data["warnings"]) >= 1
+        assert data["warnings"][0].startswith("warning_")
 
     def test_deep_health_unauthenticated(self):
         resp = self.client.get("/v1/admin/deep-health")
@@ -945,17 +947,20 @@ class TestAdminAPIEndpoints:
         assert resp.status_code == 401
 
     def test_backup_creates_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            output = os.path.join(tmp, "test_backup.json")
-            resp = self.client.post(
-                "/v1/admin/backup",
-                headers=self.auth,
-                json={"output_path": output},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["success"] is True
-            assert Path(output).exists()
+        # RT-P3B-007: output_path is ignored; backup goes to designated dir
+        backup_dir = os.environ.get("AEGIS_BACKUP_DIR", "/tmp/aegis-backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        resp = self.client.post(
+            "/v1/admin/backup",
+            headers=self.auth,
+            json={},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        # Response only shows filename, not full path
+        if "output_path" in data:
+            assert "/" not in data["output_path"]
 
     def test_restore_unauthenticated(self):
         resp = self.client.post("/v1/admin/restore")
@@ -970,23 +975,29 @@ class TestAdminAPIEndpoints:
         assert resp.status_code == 400
 
     def test_restore_from_backup(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            # Create backup
-            output = os.path.join(tmp, "backup.json")
-            self.client.post(
-                "/v1/admin/backup",
-                headers=self.auth,
-                json={"output_path": output},
-            )
-            # Restore
-            resp = self.client.post(
-                "/v1/admin/restore",
-                headers=self.auth,
-                json={"backup_path": output},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["success"] is True
+        # RT-P3B-003/007: backup goes to designated dir, restore only from there
+        backup_dir = "/tmp/aegis-backups"
+        os.makedirs(backup_dir, exist_ok=True)
+        # Create backup (output_path is ignored, goes to backup_dir)
+        resp_backup = self.client.post(
+            "/v1/admin/backup",
+            headers=self.auth,
+            json={},
+        )
+        assert resp_backup.status_code == 200
+        # Find actual backup file
+        backup_files = sorted(Path(backup_dir).glob("vault_backup_*.json"))
+        assert len(backup_files) > 0
+        backup_path = str(backup_files[-1])
+        # Restore
+        resp = self.client.post(
+            "/v1/admin/restore",
+            headers=self.auth,
+            json={"backup_path": backup_path},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
 
     def test_config_reload_unauthenticated(self):
         resp = self.client.post("/v1/admin/config-reload")

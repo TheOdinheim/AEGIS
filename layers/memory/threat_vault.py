@@ -789,7 +789,8 @@ class ThreatVault:
                     "frequency": ind.frequency,
                     "threat_category": ind.threat_category.value,
                     "phase": ind.phase.value,
-                    "payload_summary": ind.payload_summary[:100],
+                    # RT-P3B-005: Redact payload text — expose only length
+                    "payload_length": len(ind.payload_summary),
                 }
                 for ind in sorted_by_freq[:5]
             ]

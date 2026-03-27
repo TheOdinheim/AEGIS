@@ -1368,4 +1368,35 @@ Coordinated defense orchestrator tying all components together:
 
 **Full report**: `docs/red_team_phase3_report.md`
 **Regression tests**: `tests/test_red_team_phase3.py` (25 tests)
-**Test count**: 3374 passing, 0 skipped.
+
+## Red Team Phase 3B: Black-Box Assessment (2026-03-27)
+
+**Date**: 2026-03-27. **Methodology**: Black-box (no source access, HTTP API only). **Scope**: All externally reachable endpoints.
+
+### Findings Summary
+
+| ID | Severity | Finding | Fix |
+|----|----------|---------|-----|
+| RT-P3B-001 | HIGH | OpenAPI docs (/docs, /redoc, /openapi.json) expose full API schema without auth | Disabled: docs_url=None, redoc_url=None, openapi_url=None |
+| RT-P3B-002 | MEDIUM | Bearer token parsing case-sensitive (RFC 6750 violation) | `auth.lower().startswith("bearer ")` in main.py and barrier.py |
+| RT-P3B-003 | HIGH | /v1/admin/restore path traversal — arbitrary file read | Path must resolve within /tmp/aegis-backups/; check runs before service availability |
+| RT-P3B-004 | MEDIUM | /v1/admin/config-validation exposes config warning details | Warnings redacted to opaque labels (warning_1, warning_2, ...) |
+| RT-P3B-005 | MEDIUM | Vault stats payload_summary exposes attack text | Replaced with payload_length (integer only) |
+| RT-P3B-006 | MEDIUM | STIX indicator name/description accepts HTML (stored XSS) | Strip HTML tags via regex on ingest |
+| RT-P3B-007 | MEDIUM | /v1/admin/backup accepts arbitrary output_path, exposes filesystem path | Ignore user path, force designated dir, redact path in response |
+
+### Confirmed Working (Not Findings)
+
+All prompt injection vectors blocked. Auth rejects invalid/malformed tokens. Rate limiting escalates TLI. Path traversal on standard endpoints rejected. Admin endpoints require auth.
+
+### Files Modified
+
+- `main.py` — RT-P3B-001 (docs disabled), RT-P3B-002 (bearer case), RT-P3B-003 (restore traversal), RT-P3B-004 (warning redaction), RT-P3B-007 (backup path)
+- `layers/barrier.py` — RT-P3B-002 (bearer case in _extract_api_key)
+- `layers/memory/threat_vault.py` — RT-P3B-005 (payload_length replaces payload_summary)
+- `services/threat_intel.py` — RT-P3B-006 (HTML tag stripping)
+- `tests/test_enterprise.py` — Updated existing tests for RT-P3B-004, RT-P3B-007 changes
+
+**Full report**: `docs/red_team_phase3b_report.md`
+**Regression tests**: `tests/test_red_team_phase3b.py` (20 tests)
+**Test count**: 3394 passing, 5 skipped.

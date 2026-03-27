@@ -31,8 +31,10 @@ compromised.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -210,6 +212,11 @@ class ThreatIntelManager:
 
         Returns True if a new indicator was created, False if deduplicated.
         """
+        # RT-P3B-006: Sanitize STIX fields to prevent stored XSS
+        for field in ("name", "description"):
+            if field in stix_ind and isinstance(stix_ind[field], str):
+                stix_ind[field] = re.sub(r"<[^>]+>", "", stix_ind[field])
+
         # Extract attack text from pattern or description
         pattern_text = self._extract_pattern_text(stix_ind)
         description = stix_ind.get("description", "")

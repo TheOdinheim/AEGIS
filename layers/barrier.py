@@ -480,7 +480,8 @@ class BarrierLayer:
     def _extract_api_key(headers: dict[str, str]) -> str | None:
         """Extract API key from Authorization header (Bearer token)."""
         auth = headers.get("authorization") or headers.get("Authorization") or ""
-        if auth.startswith("Bearer "):
+        # RT-P3B-002: Case-insensitive Bearer per RFC 6750
+        if auth.lower().startswith("bearer "):
             return auth[7:].strip()
         # Also accept x-api-key header
         return headers.get("x-api-key") or headers.get("X-Api-Key") or None

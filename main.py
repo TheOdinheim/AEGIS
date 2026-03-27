@@ -1183,6 +1183,10 @@ app = FastAPI(
     description="Adaptive Enterprise Guard for Intelligent Systems",
     version="0.1.0",
     lifespan=lifespan,
+    # RT-P3B-001: Disable OpenAPI docs — full attack surface map exposure
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # Mount landing page, dashboard, and federation routers
@@ -1205,7 +1209,8 @@ def _is_authenticated(request: Request) -> bool:
         return False
     auth = request.headers.get("authorization", "")
     token = ""
-    if auth.startswith("Bearer "):
+    # RT-P3B-002: Case-insensitive Bearer per RFC 6750
+    if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
     if not token:
         token = (request.headers.get("x-api-key")
@@ -2713,16 +2718,20 @@ async def admin_backup(request: Request) -> Response:
     except Exception:
         pass
 
-    if not output_path:
-        backup_dir = os.environ.get("AEGIS_BACKUP_DIR", "/tmp/aegis-backups")
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        output_path = f"{backup_dir}/vault_backup_{ts}.json"
+    # RT-P3B-007: Force backup to designated directory, redact path in response
+    backup_dir = os.environ.get("AEGIS_BACKUP_DIR", "/tmp/aegis-backups")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    output_path = f"{backup_dir}/vault_backup_{ts}.json"
 
     result = await _vault_backup.backup_vault(
         _vault, Path(output_path), _signature_store,
     )
     status_code = 200 if result.success else 500
-    return JSONResponse(status_code=status_code, content=result.to_dict())
+    resp = result.to_dict()
+    # Redact filesystem path from response
+    if "output_path" in resp:
+        resp["output_path"] = Path(resp["output_path"]).name
+    return JSONResponse(status_code=status_code, content=resp)
 
 
 @app.post("/v1/admin/restore")
@@ -2735,8 +2744,6 @@ async def admin_restore(request: Request) -> Response:
     """
     if not _is_authenticated(request):
         return JSONResponse(status_code=401, content={"error": "Authentication required"})
-    if not _vault_backup or not _vault:
-        return JSONResponse(status_code=503, content={"error": "Backup manager not initialized"})
 
     try:
         body = await request.json()
@@ -2746,6 +2753,22 @@ async def admin_restore(request: Request) -> Response:
     backup_path = body.get("backup_path", "") if isinstance(body, dict) else ""
     if not backup_path:
         return JSONResponse(status_code=400, content={"error": "backup_path is required"})
+
+    # RT-P3B-003: Path traversal protection — restrict to backup directory
+    # Runs BEFORE service availability check to reject traversal even when manager is down
+    try:
+        resolved = Path(backup_path).resolve()
+        allowed_dir = Path("/tmp/aegis-backups").resolve()
+        if not str(resolved).startswith(str(allowed_dir) + "/") and resolved != allowed_dir:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "backup_path must be within the backup directory"},
+            )
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid backup path"})
+
+    if not _vault_backup or not _vault:
+        return JSONResponse(status_code=503, content={"error": "Backup manager not initialized"})
 
     result = await _vault_backup.restore_vault(
         _vault, Path(backup_path), _signature_store,
@@ -2780,7 +2803,10 @@ async def admin_config_validation(request: Request) -> Response:
     if not _config_validation:
         return JSONResponse(status_code=503, content={"error": "Config validation not available"})
 
-    return JSONResponse(content=_config_validation.to_dict())
+    # RT-P3B-004: Redact warning details — expose only counts
+    result = _config_validation.to_dict()
+    result["warnings"] = [f"warning_{i+1}" for i in range(len(result.get("warnings", [])))]
+    return JSONResponse(content=result)
 
 
 @app.post("/v1/admin/config-reload")
