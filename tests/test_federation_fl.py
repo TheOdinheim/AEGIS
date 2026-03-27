@@ -173,14 +173,18 @@ class TestTrainingBuffer:
         assert buf.size == 1
 
     def test_fifo_eviction(self):
-        buf = TrainingBuffer(max_size=5)
+        buf = TrainingBuffer(max_size=5, min_threat_ratio=0.3)
         for i in range(10):
             buf.add_sample(np.array([float(i)]), is_threat=i % 2 == 0)
 
+        # RT-P3-007: Split buffers — threat capacity=1, benign capacity=4
+        # Threats (0,2,4,6,8) → last 1 kept. Benign (1,3,5,7,9) → last 4 kept.
         assert buf.size == 5
         X, y = buf.get_training_data()
-        # Should have samples 5-9 (oldest evicted)
-        assert X[0][0] == 5.0
+        # Threat sub-buffer (last 1): [8.0], Benign sub-buffer (last 4): [3,5,7,9]
+        values = sorted(X[:, 0].tolist())
+        assert 8.0 in values  # Most recent threat preserved
+        assert 9.0 in values  # Most recent benign preserved
 
     def test_clear(self):
         buf = TrainingBuffer()

@@ -373,7 +373,7 @@ class TestNodeTrustScorer:
         scorer = NodeTrustScorer(initial_trust=0.5)
         scorer._max_events_per_node = 5
         for i in range(20):
-            scorer.record_positive("node-1", "heartbeat")
+            scorer.record_positive("node-1", "valid_indicator")
         assert len(scorer._event_log["node-1"]) == 5
 
     def test_stats(self):

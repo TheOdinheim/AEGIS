@@ -33,7 +33,8 @@ def _is_dashboard_authenticated(request: Request) -> bool:
         return False
     auth = request.headers.get("authorization", "")
     token = ""
-    if auth.startswith("Bearer "):
+    # RT-P3-004: Case-insensitive Bearer per RFC 6750
+    if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
     if not token:
         token = (request.headers.get("x-api-key")
@@ -218,7 +219,7 @@ async def dashboard_overview(request: Request) -> JSONResponse:
             "quarantined_sessions": quarantined,
             "federation": federation,
             "uptime_seconds": round(time.time() - m._dashboard_start_time, 1),
-            "test_count": 3349,
+            "test_count": 3374,
             "version": "2.0.0",
         })
     except Exception as e:

@@ -29,7 +29,8 @@ def _get_auth_and_fl(request: Request) -> tuple[JSONResponse | None, Any, Any, A
 
     auth = request.headers.get("authorization", "")
     token = ""
-    if auth.startswith("Bearer "):
+    # RT-P3-004: Case-insensitive Bearer per RFC 6750
+    if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
     if not token:
         token = (request.headers.get("x-api-key") or request.headers.get("X-Api-Key") or "").strip()
@@ -134,6 +135,15 @@ async def trigger_round(request: Request) -> JSONResponse:
                     num_samples=update["num_samples"],
                     metrics=update["metrics"],
                 )
+
+    # RT-P3-005: Only aggregate if minimum updates threshold met
+    status = fl_server.get_status()
+    if status["updates_received"] < fl_server._min_clients:
+        return JSONResponse(content={
+            "status": "insufficient_updates",
+            "updates_received": status["updates_received"],
+            "min_clients": fl_server._min_clients,
+        })
 
     result = fl_server.aggregate()
     return JSONResponse(content=result)

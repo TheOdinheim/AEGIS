@@ -74,6 +74,12 @@ class IndicatorRegistry:
         if not ind_id:
             raise ValueError("Indicator must have an 'id' field")
 
+        # RT-P3-002: Reject if ID already exists (prevents overwrite attacks)
+        if ind_id in self._indicators:
+            self._hit_counts[ind_id] += 1
+            logger.debug("Indicator %s already exists, incrementing hit count", ind_id)
+            return ind_id
+
         # Check for duplicates by embedding similarity
         new_emb = _extract_embedding(indicator)
         if new_emb is not None:

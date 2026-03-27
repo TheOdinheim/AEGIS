@@ -1327,3 +1327,45 @@ Coordinated defense orchestrator tying all components together:
 - **Dashboard**: Byzantine method, avg node trust, quarantine count, escalation status
 
 **Test count**: 3349 passing (3290 + 59), 0 skipped.
+
+---
+
+## Red Team Phase 3: White-Box Adversarial Assessment — New Components
+
+**Date**: 2026-03-27. **Scope**: Dashboard, L8 federation hub, federated model training, zero trust hardening.
+
+### Findings Summary
+
+| ID | Severity | Component | Finding | Status |
+|----|----------|-----------|---------|--------|
+| RT-P3-001 | HIGH | FL Server | `num_samples` inflation dominates aggregation | Fixed: capped at 100k |
+| RT-P3-002 | HIGH | Indicator Registry | Duplicate ID overwrites existing indicators | Fixed: reject if exists |
+| RT-P3-003 | HIGH | Node Trust | Heartbeat spam farms trust unboundedly | Fixed: 60s min interval |
+| RT-P3-004 | MEDIUM | All Auth | Bearer token case-sensitive (RFC 6750 violation) | Fixed: case-insensitive |
+| RT-P3-005 | MEDIUM | FL API | trigger-round forces premature aggregation | Fixed: require min_clients |
+| RT-P3-006 | MEDIUM | Reputation | Sybil nodes can fake consistency | Documented: inherent limitation |
+| RT-P3-007 | MEDIUM | Training Buffer | Benign flood evicts all threat samples | Fixed: split sub-buffers |
+| RT-P3-008 | LOW | Reputation | Oversized pattern causes excessive parsing | Fixed: 100KB limit |
+| RT-P3-009 | LOW | SSE | API key in URL query parameter | Documented: EventSource limitation |
+
+### Key Fixes
+
+- `fl_server.py`: `num_samples` capped to `_max_samples_per_update` (100k default)
+- `indicator_registry.py`: Duplicate IDs return existing ID without overwrite
+- `node_trust.py`: Heartbeat rewards rate-limited to 60s intervals
+- All auth functions: `auth.lower().startswith("bearer ")` per RFC 6750
+- `fl_api.py`: `trigger-round` requires `min_clients` updates before aggregating
+- `training_buffer.py`: Split into threat/benign sub-buffers with configurable ratio (30/70 default)
+- `indicator_reputation.py`: Pattern field limited to 100KB
+
+### Not Confirmed
+
+- `_get_main()` empty api_key: Safe (checked).
+- `hmac.compare_digest` timing: Constant-time as expected.
+- Dashboard XSS: React auto-escapes, no `dangerouslySetInnerHTML`.
+- SVG favicon XSS: Static constant, not user-controlled.
+- Node ID hijacking: Same auth boundary, not distinct vulnerability.
+
+**Full report**: `docs/red_team_phase3_report.md`
+**Regression tests**: `tests/test_red_team_phase3.py` (25 tests)
+**Test count**: 3374 passing, 0 skipped.

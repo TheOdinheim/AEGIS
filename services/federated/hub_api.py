@@ -31,7 +31,8 @@ def _get_auth_and_components(request: Request) -> tuple[JSONResponse | None, Any
 
     auth = request.headers.get("authorization", "")
     token = ""
-    if auth.startswith("Bearer "):
+    # RT-P3-004: Case-insensitive Bearer per RFC 6750
+    if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
     if not token:
         token = (request.headers.get("x-api-key") or request.headers.get("X-Api-Key") or "").strip()

@@ -204,6 +204,8 @@ class IndicatorReputationScorer:
         # More sources = higher consistency (cap at 1.0)
         return min(1.0, 0.5 + 0.25 * len(similar_sources))
 
+    _MAX_PATTERN_SIZE = 102_400  # 100KB max pattern field
+
     def _score_pattern_validity(
         self, indicator: dict[str, Any], reasons: list[str],
     ) -> float:
@@ -226,6 +228,12 @@ class IndicatorReputationScorer:
         if not pattern_str:
             score -= 0.4
             reasons.append("missing pattern")
+            return max(0.0, score)
+
+        # RT-P3-008: Reject oversized patterns
+        if len(pattern_str) > self._MAX_PATTERN_SIZE:
+            score -= 0.5
+            reasons.append(f"pattern too large ({len(pattern_str)} bytes)")
             return max(0.0, score)
 
         # Parse pattern JSON

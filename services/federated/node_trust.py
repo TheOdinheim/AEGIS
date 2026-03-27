@@ -90,6 +90,9 @@ class NodeTrustScorer:
         self._last_activity: dict[str, float] = {}
         self._event_log: dict[str, list[TrustEvent]] = {}
         self._max_events_per_node = 100
+        # RT-P3-003: Rate-limit heartbeat trust rewards
+        self._heartbeat_min_interval = 60.0  # seconds between trust-rewarding heartbeats
+        self._last_heartbeat_reward: dict[str, float] = {}
 
     def get_trust(self, node_id: str) -> float:
         """Get current trust score for a node. Creates with initial if new."""
@@ -99,7 +102,16 @@ class NodeTrustScorer:
         return self._scores[node_id]
 
     def record_positive(self, node_id: str, action: str, details: str = "") -> float:
-        """Record a positive trust event. Returns new score."""
+        """Record a positive trust event. Returns new score.
+
+        Heartbeat rewards are rate-limited to prevent trust farming (RT-P3-003).
+        """
+        if action == "heartbeat":
+            now = time.time()
+            last = self._last_heartbeat_reward.get(node_id, 0.0)
+            if now - last < self._heartbeat_min_interval:
+                return self.get_trust(node_id)  # Skip reward, too soon
+            self._last_heartbeat_reward[node_id] = now
         delta = self._rewards.get(action, 0.01)
         return self._apply_delta(node_id, delta, "positive", action, details)
 

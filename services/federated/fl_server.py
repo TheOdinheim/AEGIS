@@ -44,6 +44,7 @@ class FLServer:
         self._last_aggregation: str | None = None
         self._total_samples_trained: int = 0
         self._immune_response = immune_response
+        self._max_samples_per_update = 100_000
 
     def get_global_model(self) -> dict[str, Any]:
         """Return current global model weights as JSON-serializable dict."""
@@ -64,10 +65,12 @@ class FLServer:
 
         Returns status dict with round info.
         """
+        # RT-P3-001: Cap num_samples to prevent aggregation weight manipulation
+        capped_samples = max(0, min(num_samples, self._max_samples_per_update))
         self._current_updates.append({
             "node_id": node_id,
             "weights": [np.array(w, dtype=np.float64) for w in weights],
-            "num_samples": num_samples,
+            "num_samples": capped_samples,
             "metrics": metrics or {},
         })
 
