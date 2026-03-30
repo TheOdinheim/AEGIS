@@ -128,12 +128,19 @@ aegis/
 │   │   ├── correlation_engine.py   # TCE: multi-factor temporal correlation, auto-trigger on critical drift
 │   │   ├── snapshot_manager.py     # Clean State Snapshot: hash-based state capture, replay comparison
 │   │   └── date_scanner.py         # Date-triggered anomaly: sleeper agent detection at temporal boundaries
-│   └── agent_security/
-│       ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
-│       ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
-│       ├── authorization.py         # AgentAuthorizationEngine: least-privilege, scope, escalation blocking
-│       ├── message_validator.py     # AgentMessageValidator: injection scanning, quarantine
-│       └── communication_monitor.py # IACM: inter-agent lateral movement detection, compromised agent flagging
+│   ├── agent_security/
+│   │   ├── __init__.py              # AgentSecurityLayer orchestrator (MHC identity verification)
+│   │   ├── identity.py              # AgentIdentityManager: JWT signing, trust mechanics, decay
+│   │   ├── authorization.py         # AgentAuthorizationEngine: least-privilege, scope, escalation blocking
+│   │   ├── message_validator.py     # AgentMessageValidator: injection scanning, quarantine
+│   │   └── communication_monitor.py # IACM: inter-agent lateral movement detection, compromised agent flagging
+│   └── thymic/
+│       ├── __init__.py              # L9 Thymic Validation Engine package
+│       ├── engine.py                # ThymicValidationEngine orchestrator
+│       ├── probe_generator.py       # Replay, mutant, composite probe generation
+│       ├── mutation_engine.py       # 8 encoding/synonym/structural mutations
+│       ├── attack_profile_library.py # 5-tier probe corpus management
+│       └── layer_probe_router.py    # ASGI transport routing, ProbeResult
 ├── services/
 │   ├── __init__.py
 │   ├── redis_client.py              # Async Redis singleton, health check, graceful degradation
@@ -266,9 +273,9 @@ Single file: `python3 -m pytest tests/test_attack_battery.py -x -q --tb=short -p
 Stress (live): `AEGIS_STRESS_FULL=1 python3 -m pytest tests/stress/test_stress.py -v --tb=short`
 APT campaigns: `python3 -m red_team.run_red_team`
 
-## Current Metrics (as of 2026-03-23)
+## Current Metrics (as of 2026-03-30)
 
-- Tests: 3228 passing, 0 failed, 0 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
+- Tests: 3544 passing, 0 failed, 6 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)

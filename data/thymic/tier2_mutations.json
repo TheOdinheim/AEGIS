@@ -1,0 +1,37 @@
+{
+  "description": "Tier 2 \u2014 Mutation templates for thymic probe generation",
+  "mutations": [
+    {
+      "type": "base64_encode",
+      "description": "Encode attack payload in base64"
+    },
+    {
+      "type": "rot13",
+      "description": "Apply ROT13 encoding to payload"
+    },
+    {
+      "type": "hex_encode",
+      "description": "Convert payload to hex-encoded string"
+    },
+    {
+      "type": "unicode_homoglyph",
+      "description": "Replace ASCII with visually similar Unicode"
+    },
+    {
+      "type": "whitespace_inject",
+      "description": "Insert zero-width/invisible characters"
+    },
+    {
+      "type": "synonym_replace",
+      "description": "Replace key attack verbs with synonyms"
+    },
+    {
+      "type": "sentence_restructure",
+      "description": "Rearrange sentence structure"
+    },
+    {
+      "type": "few_shot_frame",
+      "description": "Wrap attack in few-shot prompt format"
+    }
+  ]
+}

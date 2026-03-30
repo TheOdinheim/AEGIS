@@ -44,13 +44,19 @@ def extract_source_ip(request: Request) -> str:
 
 def extract_headers(request: Request) -> dict[str, str]:
     """Extract relevant headers as a flat dict."""
-    return {
+    headers = {
         "authorization": request.headers.get("authorization", ""),
         "x-api-key": request.headers.get("x-api-key", ""),
         "x-session-id": request.headers.get("x-session-id", ""),
         "content-type": request.headers.get("content-type", ""),
         "x-forwarded-for": request.headers.get("x-forwarded-for", ""),
     }
+    # Optional headers — only include if present
+    for key in ("x-aegis-agent-id", "x-aegis-tve-probe"):
+        val = request.headers.get(key)
+        if val:
+            headers[key] = val
+    return headers
 
 
 async def parse_request_body(request: Request) -> dict[str, Any]:

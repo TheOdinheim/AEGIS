@@ -3029,6 +3029,15 @@ async def _process_request(request: Request, request_id: str) -> Response:
     body = await parse_request_body(request)
     headers = extract_headers(request)
     source_ip = extract_source_ip(request)
+
+    # --- Strip TVE probe header from external requests ---
+    # Only ASGI transport (internal TVE probes) should carry this header.
+    # External requests with X-Forwarded-For (from reverse proxy) are external —
+    # strip the TVE header to prevent spoofing. The TVE header is harmless
+    # (it only skips the upstream model call) but we strip it defensively.
+    xff = request.headers.get("x-forwarded-for")
+    if "x-aegis-tve-probe" in headers and xff:
+        headers.pop("x-aegis-tve-probe", None)
     raw_body = await get_raw_body(request)
     is_streaming = body.get("stream", False)
 
@@ -3447,6 +3456,33 @@ async def _process_request(request: Request, request_id: str) -> Response:
     agent_multiplier = context.metadata.get("agent_scrutiny_multiplier", 1.0)
     if agent_multiplier > 1.0:
         scrutiny_level = min(scrutiny_level * agent_multiplier, 3.0)
+
+    # --- TVE Probe Interception ---
+    # If this request is a Thymic Validation Engine probe, return a synthetic
+    # response instead of forwarding to upstream. L1/L2/L3/L6/L7 have already
+    # run, so detection telemetry is captured. Zero upstream model calls.
+    tve_probe_id = headers.get("x-aegis-tve-probe")
+    if tve_probe_id:
+        # Cancel adaptive task — it has already been created
+        adaptive_report = await adaptive_task
+        # Check adaptive block
+        if adaptive_report and adaptive_report.should_block:
+            return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
+        # Return synthetic response (no model call)
+        synthetic = {
+            "id": f"chatcmpl-tve-{request_id[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": body.get("model", "tve-synthetic"),
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "[TVE synthetic response — no upstream call]"},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+        REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="200").inc()
+        return JSONResponse(content=synthetic)
 
     if is_streaming:
         return await _handle_streaming(

@@ -1443,4 +1443,79 @@ All prompt injection vectors blocked. Auth rejects invalid/malformed tokens. Rat
 | `AEGIS_LPCI_OUTPUT_BLOCK_THRESHOLD` | 0.85 | L5 output guard blocking threshold |
 
 **Tests**: `tests/test_lpci_defense.py` (62 tests: AV-1 through AV-4, cross-session, lifecycle, false positives, integration, fail-closed)
-**Test count**: 3456 passing, 5 skipped.
+
+## TVE Phase A: Thymic Validation Engine — Core Engine
+
+**Date**: 2026-03-30. **Status**: Phase A complete.
+
+**Biological analog**: Thymic selection — the thymus continuously tests T-cell competence by presenting self-antigens (benign traffic) and foreign antigens (attack probes). Only T-cells that correctly distinguish self from non-self are allowed to mature. The TVE validates AEGIS defense layers are performing within specification without adding latency to the production request path.
+
+### Architecture
+
+L9 Thymic Education runs as an asynchronous background process. It generates adversarial probes internally, routes them through L1-L7 via ASGI transport, and measures per-layer detection rates. No new ML models loaded — reuses existing DeBERTa and MiniLM. Zero upstream model calls from TVE probes.
+
+### Five-Tier Probe Corpus
+
+| Tier | Name | Count | Purpose |
+|------|------|-------|---------|
+| 1 | Conserved Signatures | 110 | Known attacks from benchmark_attacks.json |
+| 2 | Variant Mutations | Generated | 8 mutation types applied to Tier 1 on-the-fly |
+| 3 | Emerging Threats | 0 (seed) | Populated by STIX/TAXII ingestion (Phase B) |
+| 4 | Campaign Patterns | 4 | Multi-turn conversation sequences |
+| 5 | Benign Traffic | 60 | Verified legitimate prompts (must NOT trigger) |
+
+### Mutation Types
+
+`base64_encode`, `rot13`, `hex_encode`, `unicode_homoglyph`, `whitespace_inject`, `synonym_replace`, `sentence_restructure`, `few_shot_frame`
+
+### New Modules
+
+| Module | Function |
+|--------|----------|
+| `layers/thymic/__init__.py` | Package exports |
+| `layers/thymic/engine.py` | ThymicValidationEngine orchestrator (run_spot_check, run_comprehensive_sweep, get_health_summary) |
+| `layers/thymic/probe_generator.py` | ProbeGenerator: replay, mutant, composite strategies |
+| `layers/thymic/mutation_engine.py` | MutationEngine: 8 transformation types |
+| `layers/thymic/attack_profile_library.py` | AttackProfileLibrary: 5-tier corpus management |
+| `layers/thymic/layer_probe_router.py` | LayerProbeRouter: ASGI transport routing, ProbeResult |
+
+### Data Files
+
+| File | Purpose |
+|------|---------|
+| `data/thymic/tier1_conserved.json` | 110 conserved attack signatures |
+| `data/thymic/tier2_mutations.json` | 8 mutation template definitions |
+| `data/thymic/tier3_emerging.json` | Empty (populated in Phase B) |
+| `data/thymic/tier4_campaigns.json` | 4 multi-turn campaign sequences |
+| `data/thymic/tier5_benign.json` | 60 verified benign prompts |
+
+### Pipeline Integration
+
+- TVE probes carry `X-AEGIS-TVE-Probe` header for identification
+- `main.py` intercepts TVE probes after L1/L2/L3/L6/L7 run, returns synthetic response (no upstream call)
+- `middleware/request_enrichment.py` extracts TVE header for pipeline visibility
+- External requests with TVE header + X-Forwarded-For have it stripped (anti-spoofing)
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AEGIS_TVE_ENABLED` | true | Enable Thymic Validation Engine |
+| `AEGIS_TVE_SPOT_CHECK_PROBES_PER_TIER` | 50 | Probes per tier in spot check runs |
+| `AEGIS_TVE_CONCURRENCY` | 5 | Max concurrent probe routes |
+
+### Report Model
+
+`ValidationReport`: run_id, run_type, timestamp, duration_seconds, total_probes, probes_detected, probes_missed, false_positives, per_layer_results (LayerResult), per_tier_results (TierResult), overall_tpr, overall_fpr.
+
+`HealthSummary`: per-layer TPR/FPR from most recent run.
+
+### Phase A Constraints (enforced)
+
+1. Zero upstream model calls from TVE probes (tested explicitly)
+2. No new ML model loading (reuses DeBERTa/MiniLM)
+3. Append-only library (never deletes entries)
+4. Phase A: manually invocable only (no scheduling, no event bus, no mitigations)
+
+**Tests**: `tests/test_thymic_engine.py` (21), `tests/test_thymic_probes.py` (25), `tests/test_thymic_library.py` (27), `tests/test_thymic_router.py` (16) — 89 tests total
+**Test count**: 3544 passing, 6 skipped.

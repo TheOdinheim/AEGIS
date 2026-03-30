@@ -1234,6 +1234,22 @@ class AegisConfig(BaseSettings):
         description="LPCI output guard blocking threshold",
     )
 
+    # --- Thymic Validation Engine (L9) ---
+    tve_enabled: bool = Field(
+        default=True,
+        description="Enable Thymic Validation Engine",
+    )
+    tve_spot_check_probes_per_tier: int = Field(
+        default=50,
+        ge=1,
+        description="Probes per tier in spot check runs",
+    )
+    tve_concurrency: int = Field(
+        default=5,
+        ge=1,
+        description="Max concurrent probe routes during validation runs",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)
