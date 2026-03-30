@@ -1548,3 +1548,57 @@ L9 Thymic Education runs as an asynchronous background process. It generates adv
 | `tests/test_thymic_integration.py` | 12 | Full pipeline end-to-end, positive/negative selection, event emission, telemetry accumulation, baselines across runs, health summary with verdict, empty library |
 
 **Tests**: 61 new tests across 4 files. **Test count**: 3605 passing, 6 skipped.
+
+## TVE Phase C: Operational Modes, Scheduling & Compliance
+
+**Date**: 2026-03-30. **Status**: Phase C complete.
+
+### Four Operational Modes
+
+| Mode | Trigger | Function |
+|------|---------|----------|
+| 1. Continuous Spot Check | Every 15 min (configurable) | `engine.run_spot_check()` — ~250 probes, lightweight |
+| 2. Comprehensive Sweep | Every 6 hours (configurable) | `engine.run_comprehensive_sweep()` — full library + mutations |
+| 3. Post-Change Validation | Event-triggered | `engine.run_post_change(changed_layers)` — targeted + regression spot check |
+| 4. Stress Validation | On-demand only | `engine.run_stress_validation(multiplier)` — elevated concurrency, capped at max |
+
+### Adaptive Scheduling (Thymic Involution)
+
+Per-layer stability scores track consecutive passing sweeps. After `tve_adaptive_decay_threshold` (default 30) consecutive stable sweeps, probe frequency for that layer halves. Any failure resets score to 0 and resumes full-frequency validation.
+
+### New Modules
+
+| Module | Function |
+|--------|----------|
+| `layers/thymic/scheduler.py` | ThymicScheduler: asyncio-based background loops (spot check + sweep), post-change/stress triggers, stability tracking, adaptive decay |
+| `layers/thymic/compliance_reporter.py` | ComplianceReporter: maps TVE results to 6 frameworks (NIST AI RMF, ISO 42001, EU AI Act, CMMC 2.0, SOC 2, FedRAMP), generates per-run evidence and multi-run summaries with uptime % |
+
+### Engine Updates
+
+- `run_post_change(changed_layers)` — generates focused probes for changed layers + regression spot check, `run_type="post_change"`
+- `run_stress_validation(concurrency_multiplier, max_concurrency)` — comprehensive sweep at elevated concurrency, `run_type="stress"`
+
+### New Endpoints
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /v1/tve/health` | Yes | Immune Health Monitor — current HealthSummary as JSON |
+| `GET /v1/tve/compliance` | Yes | Most recent ComplianceEvidence as JSON |
+
+### Configuration (added to config.py)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AEGIS_TVE_SPOT_CHECK_INTERVAL_MINUTES` | 15 | Minutes between spot checks |
+| `AEGIS_TVE_SWEEP_INTERVAL_HOURS` | 6 | Hours between comprehensive sweeps |
+| `AEGIS_TVE_ADAPTIVE_DECAY_THRESHOLD` | 30 | Consecutive stable sweeps before decay |
+| `AEGIS_TVE_STRESS_MAX_CONCURRENCY` | 50 | Upper bound for stress mode concurrency |
+
+### Phase C Tests
+
+| File | Tests | Coverage |
+|------|-------|---------|
+| `tests/test_thymic_scheduler.py` | 26 | Lifecycle (start/stop/idempotent), spot check loop, sweep loop, post-change targeting, stress concurrency/cap, adaptive stability/decay/reset, schedule status, engine run_post_change/run_stress_validation, error handling |
+| `tests/test_thymic_compliance.py` | 17 | Evidence generation (6 frameworks, field validation, pass/fail mapping, NIST/CMMC mapping), summary aggregation (TPR/FPR averages, uptime %, failed checks, empty/single), dashboard endpoints |
+
+**Tests**: 43 new tests across 2 files. **Test count**: 3648 passing, 6 skipped.

@@ -1447,6 +1447,64 @@ async def taxonomy_stats(request: Request) -> Response:
     })
 
 
+# ---------------------------------------------------------------------------
+# TVE Health & Compliance endpoints
+# ---------------------------------------------------------------------------
+
+# Module-level TVE state (wired externally or via scheduler)
+_tve_engine: "ThymicValidationEngine | None" = None  # type: ignore[name-defined]  # noqa: F821
+_tve_compliance_reporter: "ComplianceReporter | None" = None  # type: ignore[name-defined]  # noqa: F821
+
+
+@app.get("/v1/tve/health")
+async def tve_health(request: Request) -> Response:
+    """Immune Health Monitor — current TVE validation status."""
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if _tve_engine is None:
+        return JSONResponse(content={"status": "no_data", "reason": "TVE not initialized"})
+    summary = _tve_engine.get_health_summary()
+    if summary.last_run_id is None:
+        return JSONResponse(content={"status": "no_data", "reason": "No validation runs completed"})
+    return JSONResponse(content={
+        "status": "ok",
+        "last_run_id": summary.last_run_id,
+        "last_run_timestamp": summary.last_run_timestamp.isoformat() if summary.last_run_timestamp else None,
+        "last_run_type": summary.last_run_type,
+        "overall_tpr": summary.overall_tpr,
+        "overall_fpr": summary.overall_fpr,
+        "per_layer_tpr": summary.per_layer_tpr,
+        "per_layer_fpr": summary.per_layer_fpr,
+        "total_probes_last_run": summary.total_probes_last_run,
+        "verdict_passed": summary.verdict_passed,
+        "recommended_actions": summary.recommended_actions,
+    })
+
+
+@app.get("/v1/tve/compliance")
+async def tve_compliance(request: Request) -> Response:
+    """Most recent compliance evidence from TVE validation."""
+    if not _is_authenticated(request):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Authentication required"},
+        )
+    if _tve_engine is None or _tve_compliance_reporter is None:
+        return JSONResponse(content={"status": "no_data", "reason": "TVE not initialized"})
+    summary = _tve_engine.get_health_summary()
+    if summary.last_run_id is None:
+        return JSONResponse(content={"status": "no_data", "reason": "No validation runs completed"})
+    # Get last report from engine
+    report = _tve_engine._last_report
+    if report is None:
+        return JSONResponse(content={"status": "no_data", "reason": "No validation report available"})
+    evidence = _tve_compliance_reporter.generate_evidence(report)
+    return JSONResponse(content=evidence.to_dict())
+
+
 @app.get("/v1/tool-proxy/stats")
 async def tool_proxy_stats(request: Request) -> Response:
     """Tool Invocation Proxy statistics.

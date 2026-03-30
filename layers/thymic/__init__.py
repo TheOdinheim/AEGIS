@@ -38,6 +38,13 @@ from aegis.layers.thymic.verdict_analyzer import (
     LatencyVerdict,
 )
 from aegis.layers.thymic.response_emitter import ResponseEmitter
+from aegis.layers.thymic.scheduler import ThymicScheduler
+from aegis.layers.thymic.compliance_reporter import (
+    ComplianceReporter,
+    ComplianceEvidence,
+    ComplianceSummary,
+    FrameworkMapping,
+)
 
 __all__ = [
     "ThymicValidationEngine",
@@ -61,4 +68,9 @@ __all__ = [
     "DeadScannerVerdict",
     "LatencyVerdict",
     "ResponseEmitter",
+    "ThymicScheduler",
+    "ComplianceReporter",
+    "ComplianceEvidence",
+    "ComplianceSummary",
+    "FrameworkMapping",
 ]

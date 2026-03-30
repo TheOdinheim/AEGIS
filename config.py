@@ -1249,6 +1249,26 @@ class AegisConfig(BaseSettings):
         ge=1,
         description="Max concurrent probe routes during validation runs",
     )
+    tve_spot_check_interval_minutes: int = Field(
+        default=15,
+        ge=1,
+        description="Minutes between spot check runs",
+    )
+    tve_sweep_interval_hours: int = Field(
+        default=6,
+        ge=1,
+        description="Hours between comprehensive sweep runs",
+    )
+    tve_adaptive_decay_threshold: int = Field(
+        default=30,
+        ge=1,
+        description="Consecutive stable sweeps before adaptive decay",
+    )
+    tve_stress_max_concurrency: int = Field(
+        default=50,
+        ge=1,
+        description="Upper bound for stress mode concurrency",
+    )
 
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)

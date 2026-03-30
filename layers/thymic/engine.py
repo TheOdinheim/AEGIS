@@ -194,6 +194,83 @@ class ThymicValidationEngine:
         self._last_report = report
         return report
 
+    async def run_post_change(self, changed_layers: list[str]) -> ValidationReport:
+        """Targeted validation after a layer change.
+
+        Generates focused probes for changed layers plus a smaller spot check
+        of remaining layers for regression detection.
+        """
+        start = time.perf_counter()
+        run_id = str(uuid.uuid4())
+
+        probes: list[Probe] = []
+        try:
+            # Focused probes for each changed layer
+            for layer_id in changed_layers:
+                probes.extend(self._generator.generate_for_layer(layer_id))
+
+            # Smaller regression spot check of all layers
+            spot = self._generator.generate_spot_check(probes_per_tier=10)
+            probes.extend(spot)
+        except Exception as e:
+            logger.error("Post-change probe generation failed: %s", e)
+            return ValidationReport(
+                run_id=run_id,
+                run_type="post_change",
+                duration_seconds=time.perf_counter() - start,
+            )
+
+        if not probes:
+            return ValidationReport(
+                run_id=run_id,
+                run_type="post_change",
+                duration_seconds=time.perf_counter() - start,
+            )
+
+        results = await self._router.route_batch(probes)
+        report = self._build_report(run_id, "post_change", probes, results, start)
+
+        await self._analyze_and_emit(report, probes, results)
+        self._last_report = report
+        return report
+
+    async def run_stress_validation(
+        self,
+        concurrency_multiplier: int = 10,
+        max_concurrency: int = 50,
+    ) -> ValidationReport:
+        """Comprehensive sweep with elevated concurrency for load testing."""
+        start = time.perf_counter()
+        run_id = str(uuid.uuid4())
+
+        try:
+            probes = self._generator.generate_comprehensive()
+        except Exception as e:
+            logger.error("Stress probe generation failed: %s", e)
+            return ValidationReport(
+                run_id=run_id,
+                run_type="stress",
+                duration_seconds=time.perf_counter() - start,
+            )
+
+        if not probes:
+            return ValidationReport(
+                run_id=run_id,
+                run_type="stress",
+                duration_seconds=time.perf_counter() - start,
+            )
+
+        stress_concurrency = min(
+            self._router._concurrency * concurrency_multiplier,
+            max_concurrency,
+        )
+        results = await self._router.route_batch(probes, concurrency=stress_concurrency)
+        report = self._build_report(run_id, "stress", probes, results, start)
+
+        await self._analyze_and_emit(report, probes, results)
+        self._last_report = report
+        return report
+
     async def _analyze_and_emit(
         self,
         report: ValidationReport,

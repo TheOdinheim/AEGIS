@@ -275,7 +275,7 @@ APT campaigns: `python3 -m red_team.run_red_team`
 
 ## Current Metrics (as of 2026-03-30)
 
-- Tests: 3605 passing, 0 failed, 6 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
+- Tests: 3648 passing, 0 failed, 6 skipped (with AEGIS_STRESS_FULL=1 and tesseract-ocr installed)
 - Benchmark (with DeBERTa): 110 attacks, 500 benign prompts
 - TPR (full stack, DeBERTa loaded): 96.36% (106/110)
 - TPR (innate L2 only): 95.45% (105/110)
