@@ -28,6 +28,16 @@ from aegis.layers.thymic.probe_generator import ProbeGenerator, Probe
 from aegis.layers.thymic.mutation_engine import MutationEngine
 from aegis.layers.thymic.attack_profile_library import AttackProfileLibrary
 from aegis.layers.thymic.layer_probe_router import LayerProbeRouter, ProbeResult
+from aegis.layers.thymic.telemetry_collector import TelemetryCollector, TelemetryRecord, LayerBaseline
+from aegis.layers.thymic.verdict_analyzer import (
+    VerdictAnalyzer,
+    VerdictReport,
+    DetectionVerdict,
+    FalsePositiveVerdict,
+    DeadScannerVerdict,
+    LatencyVerdict,
+)
+from aegis.layers.thymic.response_emitter import ResponseEmitter
 
 __all__ = [
     "ThymicValidationEngine",
@@ -41,4 +51,14 @@ __all__ = [
     "AttackProfileLibrary",
     "LayerProbeRouter",
     "ProbeResult",
+    "TelemetryCollector",
+    "TelemetryRecord",
+    "LayerBaseline",
+    "VerdictAnalyzer",
+    "VerdictReport",
+    "DetectionVerdict",
+    "FalsePositiveVerdict",
+    "DeadScannerVerdict",
+    "LatencyVerdict",
+    "ResponseEmitter",
 ]

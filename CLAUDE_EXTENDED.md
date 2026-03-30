@@ -1518,4 +1518,33 @@ L9 Thymic Education runs as an asynchronous background process. It generates adv
 4. Phase A: manually invocable only (no scheduling, no event bus, no mitigations)
 
 **Tests**: `tests/test_thymic_engine.py` (21), `tests/test_thymic_probes.py` (25), `tests/test_thymic_library.py` (27), `tests/test_thymic_router.py` (16) — 89 tests total
-**Test count**: 3544 passing, 6 skipped.
+
+## TVE Phase B: Analysis & Response
+
+**Date**: 2026-03-30. **Status**: Phase B complete.
+
+### New Modules
+
+| Module | Function |
+|--------|----------|
+| `layers/thymic/telemetry_collector.py` | TelemetryCollector: per-probe result capture, rolling buffer (FIFO, 100K default), baseline computation (TPR/FPR/latency per layer), time-windowed history, pruning |
+| `layers/thymic/verdict_analyzer.py` | VerdictAnalyzer: 4 validation checks — Detection (per-layer TPR vs baseline/default 0.95), False Positive (FPR from Tier 5, default 0.005), Dead Scanner (zero-detection layers), Latency Regression (P95 vs baseline, factor 2.0) |
+| `layers/thymic/response_emitter.py` | ResponseEmitter: 6 event types to event bus — validation.complete, detection.failure, false_positive.detected, scanner.dead, latency.regression, tli.recommendation. TLI logic: UP on detection failure + dead scanners, DOWN on all pass + FPR < 50% threshold. Graceful degradation without event bus. |
+
+### Engine Integration
+
+- `engine.py` updated: `_analyze_and_emit()` chains telemetry → verdict → emit after probe routing
+- `ValidationReport.verdict` field carries VerdictReport
+- `HealthSummary` includes `verdict_passed` and `recommended_actions`
+- Constructor accepts `telemetry`, `verdict_analyzer`, `response_emitter` params
+
+### Phase B Tests
+
+| File | Tests | Coverage |
+|------|-------|---------|
+| `tests/test_thymic_telemetry.py` | 14 | record_result, get_run_results, layer_history, baselines (TPR/FPR), compute_baselines, prune, FIFO eviction, record_count |
+| `tests/test_thymic_verdicts.py` | 17 | Detection pass/fail/default, FP pass/fail/flagged/no-tier5, dead scanner pass/fail, latency pass/fail, overall_passed, recommended_actions, edge cases |
+| `tests/test_thymic_emitter.py` | 18 | All 6 event types, TLI up/down/no-recommendation, event bus publish, graceful degradation, source+run_id on all events |
+| `tests/test_thymic_integration.py` | 12 | Full pipeline end-to-end, positive/negative selection, event emission, telemetry accumulation, baselines across runs, health summary with verdict, empty library |
+
+**Tests**: 61 new tests across 4 files. **Test count**: 3605 passing, 6 skipped.
