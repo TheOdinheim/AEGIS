@@ -566,10 +566,10 @@ class TestFiveStageCascade:
         return OutputValidationLayer(OutputConfig())
 
     def test_five_stages_counted(self, layer):
-        """validate_full should run all 5 stages."""
+        """validate_full should run all 6 stages (5 original + LPCI guard)."""
         context = _make_plain_context()
         result = _run(layer.validate_full("Clean output text", context=context))
-        assert result.stage_count == 5
+        assert result.stage_count == 6
 
     def test_result_has_all_fields(self, layer):
         context = _make_plain_context()

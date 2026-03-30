@@ -34,6 +34,7 @@ from aegis.layers.output.hallucination import HallucinationDetector, Hallucinati
 from aegis.layers.output.leakage import LeakageDetector, LeakageResult
 from aegis.layers.output.pii_redactor import PIIRedactor, RedactionResult
 from aegis.layers.output.schema_validator import OutputSchemaValidator, SchemaValidationResult
+from aegis.layers.output.lpci_output_guard import LPCIOutputGuard, LPCIOutputResult
 from aegis.layers.output.toxicity import ToxicityClassifier, ToxicityResult
 from aegis.models.request_context import RequestContext
 
@@ -90,6 +91,7 @@ class OutputValidationLayer:
         self._hallucination = HallucinationDetector()
         self._leakage = LeakageDetector(self._config)
         self._schema_validator = OutputSchemaValidator()
+        self._lpci_guard = LPCIOutputGuard()
         self._window_size = DEFAULT_WINDOW_SIZE
 
     @property
@@ -111,6 +113,10 @@ class OutputValidationLayer:
     @property
     def schema_validator(self) -> OutputSchemaValidator:
         return self._schema_validator
+
+    @property
+    def lpci_guard(self) -> LPCIOutputGuard:
+        return self._lpci_guard
 
     def validate(
         self,
@@ -288,6 +294,16 @@ class OutputValidationLayer:
                 result.reasons.append(
                     f"Schema violations: {len(schema_result.violations)} issues"
                 )
+
+        # --- Stage 6: LPCI Output Guard ---
+        lpci_result = self._lpci_guard.detect(result.redacted_text, system_prompt)
+        result.stage_count += 1
+
+        if lpci_result.has_issue:
+            result.should_block = True
+            for det in lpci_result.detections:
+                result.reasons.append(f"LPCI output guard: {det}")
+            result.max_severity = max(result.max_severity, lpci_result.score)
 
         result.escalated = escalated
         result.total_latency_ms = (time.perf_counter() - start) * 1000

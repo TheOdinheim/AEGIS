@@ -27,6 +27,7 @@ from aegis.layers.adaptive.behavioral import BehavioralAnalyzer
 from aegis.layers.adaptive.injection_classifier import InjectionClassifier
 from aegis.layers.adaptive.margin_booster import ConfidenceMarginBooster
 from aegis.layers.adaptive.multi_turn import MultiTurnAnalyzer
+from aegis.layers.adaptive.lpci_analyzer import LPCIAnalyzer
 from aegis.layers.adaptive.semantic_search import SemanticSearchAnalyzer
 from aegis.layers.memory.threat_vault import ThreatVault
 from aegis.models.adaptive_result import (
@@ -110,6 +111,7 @@ class AdaptiveAnalysisLayer:
         self._behavioral = BehavioralAnalyzer(config)
         self._multi_turn = MultiTurnAnalyzer(config, embed_fn=embed_fn)
         self._margin_booster = ConfidenceMarginBooster()
+        self._lpci = LPCIAnalyzer()
 
     @property
     def classifier(self) -> InjectionClassifier:
@@ -126,6 +128,10 @@ class AdaptiveAnalysisLayer:
     @property
     def multi_turn(self) -> MultiTurnAnalyzer:
         return self._multi_turn
+
+    @property
+    def lpci_analyzer(self) -> LPCIAnalyzer:
+        return self._lpci
 
     @property
     def threat_vault(self) -> ThreatVault:
@@ -146,13 +152,14 @@ class AdaptiveAnalysisLayer:
         start = time.perf_counter()
         prompt = context.last_user_message or context.prompt_text
 
-        # Run analyzers concurrently (4 analyzers)
-        classifier_result, semantic_result, behavioral_result, multi_turn_result = (
+        # Run analyzers concurrently (5 analyzers)
+        classifier_result, semantic_result, behavioral_result, multi_turn_result, lpci_result = (
             await asyncio.gather(
                 self._classifier.analyze(prompt),
                 self._semantic.analyze(prompt),
                 self._behavioral.analyze(context),
                 self._multi_turn.analyze(context, innate_report=innate_report),
+                self._lpci.analyze(context),
             )
         )
 
@@ -189,7 +196,7 @@ class AdaptiveAnalysisLayer:
                     dca_signals=classifier_result.dca_signals,
                 )
 
-        results = [classifier_result, semantic_result, behavioral_result, multi_turn_result]
+        results = [classifier_result, semantic_result, behavioral_result, multi_turn_result, lpci_result]
 
         # Collect all DCA signals
         all_signals = []

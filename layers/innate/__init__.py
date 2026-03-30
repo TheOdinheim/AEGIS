@@ -29,6 +29,7 @@ from aegis.layers.innate.pii_regex import PIIRegexScanner
 from aegis.layers.innate.canary_verifier import CanaryVerifier
 from aegis.layers.innate.sliding_window import SlidingWindowScanner
 from aegis.layers.innate.multilang_detector import MultiLangDetector
+from aegis.layers.innate.lpci_detector import LPCIDetector
 
 
 class InnateDetectionLayer:
@@ -56,6 +57,7 @@ class InnateDetectionLayer:
         self._canary_verifier = CanaryVerifier(canary_config)
         self._sliding_window = SlidingWindowScanner()
         self._multilang = MultiLangDetector()
+        self._lpci = LPCIDetector(enabled=True)
 
     @property
     def regex_engine(self) -> RegexEngine:
@@ -68,6 +70,10 @@ class InnateDetectionLayer:
     @property
     def canary_verifier(self) -> CanaryVerifier:
         return self._canary_verifier
+
+    @property
+    def lpci_detector(self) -> LPCIDetector:
+        return self._lpci
 
     async def scan(self, context: RequestContext) -> InnateScanReport:
         """Run all innate scanners in parallel and produce an aggregated report.
@@ -98,10 +104,15 @@ class InnateDetectionLayer:
             else _noop_scan("canary_verifier"),
         )
 
-        # Run multi-language injection detector
-        multilang_result = await self._multilang.scan(prompt)
+        # Run multi-language injection detector and LPCI detector
+        multilang_result, lpci_result = await asyncio.gather(
+            self._multilang.scan(prompt),
+            self._lpci.scan(prompt),
+        )
         if multilang_result.is_threat:
             results.append(multilang_result)
+        if lpci_result.is_threat:
+            results.append(lpci_result)
 
         # Run sliding window scanner on long inputs for padding dilution defense
         # This catches injections buried in benign padding that full-text regex misses

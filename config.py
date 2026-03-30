@@ -1212,6 +1212,28 @@ class AegisConfig(BaseSettings):
         description="Campaign graph node retention in seconds (5 min default)",
     )
 
+    # --- LPCI Defense (arXiv:2507.10457) ---
+    lpci_enabled: bool = Field(
+        default=True,
+        description="Enable Logic-layer Prompt Control Injection defense",
+    )
+    lpci_max_dormant_per_user: int = Field(
+        default=50,
+        ge=10,
+        description="Maximum dormant payloads tracked per user for cross-session correlation",
+    )
+    lpci_correlation_window_hours: float = Field(
+        default=72.0,
+        ge=1.0,
+        description="Hours of dormant payload history for cross-session correlation",
+    )
+    lpci_output_block_threshold: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="LPCI output guard blocking threshold",
+    )
+
     # --- Layer configs ---
     barrier: BarrierConfig = Field(default_factory=BarrierConfig)
     innate: InnateConfig = Field(default_factory=InnateConfig)

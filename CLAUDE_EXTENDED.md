@@ -1399,4 +1399,48 @@ All prompt injection vectors blocked. Auth rejects invalid/malformed tokens. Rat
 
 **Full report**: `docs/red_team_phase3b_report.md`
 **Regression tests**: `tests/test_red_team_phase3b.py` (20 tests)
-**Test count**: 3394 passing, 5 skipped.
+
+## LPCI Defense — Logic-layer Prompt Control Injection (arXiv:2507.10457)
+
+**Date**: 2026-03-30. **Reference**: Atta et al., arXiv:2507.10457 (July 2025).
+
+**Biological analog**: Mucosal immunity at internal surfaces — IgA antibodies screening content entering/exiting persistent memory stores, the "internal surfaces" of agentic AI systems.
+
+### Attack Vectors Defended
+
+| AV | Name | Description | Detection Layer |
+|----|------|-------------|-----------------|
+| AV-1 | Tool Poisoning | Malicious instructions in tool schemas/outputs | L2 (regex), L3 (lifecycle) |
+| AV-2 | Memory-Persistent Encoded Triggers | Encoded payloads with persistence verbs + conditional activation | L2 (regex), L3 (cross-session) |
+| AV-3 | Role Override via Memory Entrenchment | Role redefinition through persistent context manipulation | L2 (regex), L3 (memory integrity) |
+| AV-4 | Vector Store Payload Persistence | Injection in RAG-retrieved content | L2 (RAG context scanning) |
+
+### New Modules
+
+| Module | Layer | Function |
+|--------|-------|----------|
+| `layers/innate/lpci_detector.py` | L2 | Write-path scanning, conditional trigger detection, RAG context injection detection (<2ms) |
+| `layers/adaptive/lpci_analyzer.py` | L3 | Cross-session payload correlation, lifecycle stage classification, memory integrity signals |
+| `layers/output/lpci_output_guard.py` | L5 | Persistence payload interception in model responses |
+
+### Key Capabilities
+
+- **Write-path scanning**: Detects persistence verbs + override/conditional patterns in requests
+- **Conditional trigger detection**: Identifies dormant payloads with time/keyword/turn activation
+- **RAG context injection**: Scans retrieved-context sections for instruction override language
+- **Cross-session correlation**: Tracks dormant payloads per-tenant/per-user, alerts when trigger patterns appear in later sessions
+- **Lifecycle classification**: Reconnaissance → Injection → Trigger stages detected via L3 analyzer
+- **Output guard**: Blocks responses attempting to persist malicious payloads or redefine roles
+- **DCA integration**: LPCI signals feed into Dendritic Cell Algorithm (PAMP for triggers, DANGER for injection/recon)
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AEGIS_LPCI_ENABLED` | true | Enable LPCI defense |
+| `AEGIS_LPCI_MAX_DORMANT_PER_USER` | 50 | Max dormant payloads per user for cross-session tracking |
+| `AEGIS_LPCI_CORRELATION_WINDOW_HOURS` | 72.0 | Hours of dormant payload history |
+| `AEGIS_LPCI_OUTPUT_BLOCK_THRESHOLD` | 0.85 | L5 output guard blocking threshold |
+
+**Tests**: `tests/test_lpci_defense.py` (62 tests: AV-1 through AV-4, cross-session, lifecycle, false positives, integration, fail-closed)
+**Test count**: 3456 passing, 5 skipped.

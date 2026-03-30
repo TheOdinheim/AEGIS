@@ -460,7 +460,7 @@ class TestAdaptiveAnalysisLayer:
 
         assert report.mcav_score > 0.0
         # Should have analyzer results from all three analyzers
-        assert len(report.analyzer_results) == 4
+        assert len(report.analyzer_results) == 5
 
     def test_attack_16_skeleton_key(self, layer: AdaptiveAnalysisLayer):
         """Attack #16: Skeleton key administrative override.
@@ -559,7 +559,7 @@ class TestAdaptiveAnalysisLayer:
         ctx = _ctx("Test message")
         report = _run(layer.analyze(ctx))
         assert report.total_latency_ms >= 0
-        assert len(report.analyzer_results) == 4
+        assert len(report.analyzer_results) == 5
 
 
 # =========================================================================
