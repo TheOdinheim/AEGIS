@@ -202,7 +202,7 @@ class TestReportDetails:
         library.add_probe(Probe(id="a2", text="attack2", tier=1, expected_result="block"))
         library.add_probe(Probe(id="b1", text="benign1", tier=5, expected_result="pass"))
 
-        async def mock_route(probe: Probe) -> ProbeResult:
+        async def mock_route(probe: Probe, **kwargs) -> ProbeResult:
             if probe.expected_result == "block":
                 return ProbeResult(
                     probe_id=probe.id, probe_tier=probe.tier,
@@ -230,7 +230,7 @@ class TestReportDetails:
         library.add_probe(Probe(id="b1", text="benign1", tier=5, expected_result="pass"))
         library.add_probe(Probe(id="b2", text="benign2", tier=5, expected_result="pass"))
 
-        async def mock_route(probe: Probe) -> ProbeResult:
+        async def mock_route(probe: Probe, **kwargs) -> ProbeResult:
             # First benign gets false-positive flagged
             if probe.id.endswith("b1") or (hasattr(probe, 'parent_id') and probe.parent_id and probe.parent_id.endswith("b1")):
                 return ProbeResult(

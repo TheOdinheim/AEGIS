@@ -303,6 +303,10 @@ class ThymicValidationEngine:
             except Exception as e:
                 logger.error("Response emission failed: %s", e)
 
+    def get_last_report(self) -> ValidationReport | None:
+        """Return the most recent validation report, or None."""
+        return self._last_report
+
     def get_health_summary(self) -> HealthSummary:
         """Return current per-layer TPR/FPR from most recent run."""
         if not self._last_report:

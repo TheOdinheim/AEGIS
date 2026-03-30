@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from dataclasses import dataclass, field
 
@@ -60,7 +61,7 @@ class LayerProbeRouter:
         self._api_key = api_key
         self._concurrency = concurrency
 
-    async def route_probe(self, probe: Probe) -> ProbeResult:
+    async def route_probe(self, probe: Probe, nonce: str = "") -> ProbeResult:
         """Route a single probe through the ASGI pipeline."""
         import httpx
 
@@ -71,6 +72,17 @@ class LayerProbeRouter:
                 detected=False,
                 error="No app configured",
             )
+
+        # If no nonce provided, self-manage a temporary one
+        own_nonce = False
+        if not nonce:
+            nonce = secrets.token_hex(32)
+            own_nonce = True
+            try:
+                from aegis.main import register_tve_nonce
+                register_tve_nonce(nonce)
+            except ImportError:
+                pass
 
         start = time.perf_counter()
 
@@ -86,10 +98,12 @@ class LayerProbeRouter:
             "messages": messages,
         }
 
+        # Include nonce in header value: "probe_id:nonce"
+        header_value = f"{probe.id}:{nonce}"
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
-            TVE_PROBE_HEADER: probe.id,
+            TVE_PROBE_HEADER: header_value,
         }
 
         try:
@@ -164,21 +178,42 @@ class LayerProbeRouter:
                 latency_ms={"total": elapsed_ms},
                 error=str(e),
             )
+        finally:
+            if own_nonce:
+                try:
+                    from aegis.main import unregister_tve_nonce
+                    unregister_tve_nonce(nonce)
+                except ImportError:
+                    pass
 
     async def route_batch(
         self,
         probes: list[Probe],
         concurrency: int | None = None,
     ) -> list[ProbeResult]:
-        """Route batch with configurable concurrency."""
+        """Route batch with configurable concurrency and nonce management."""
         max_concurrent = concurrency or self._concurrency
         semaphore = asyncio.Semaphore(max_concurrent)
-        results: list[ProbeResult] = []
 
-        async def _route_with_semaphore(probe: Probe) -> ProbeResult:
-            async with semaphore:
-                return await self.route_probe(probe)
+        # Generate and register nonce for this batch
+        nonce = secrets.token_hex(32)
+        try:
+            from aegis.main import register_tve_nonce, unregister_tve_nonce
+            register_tve_nonce(nonce)
+        except ImportError:
+            pass  # Running without main.py (tests with mock routers)
 
-        tasks = [_route_with_semaphore(p) for p in probes]
-        results = await asyncio.gather(*tasks)
-        return list(results)
+        try:
+            async def _route_with_semaphore(probe: Probe) -> ProbeResult:
+                async with semaphore:
+                    return await self.route_probe(probe, nonce=nonce)
+
+            tasks = [_route_with_semaphore(p) for p in probes]
+            results = await asyncio.gather(*tasks)
+            return list(results)
+        finally:
+            try:
+                from aegis.main import unregister_tve_nonce
+                unregister_tve_nonce(nonce)
+            except ImportError:
+                pass

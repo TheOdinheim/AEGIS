@@ -1602,3 +1602,67 @@ Per-layer stability scores track consecutive passing sweeps. After `tve_adaptive
 | `tests/test_thymic_compliance.py` | 17 | Evidence generation (6 frameworks, field validation, pass/fail mapping, NIST/CMMC mapping), summary aggregation (TPR/FPR averages, uptime %, failed checks, empty/single), dashboard endpoints |
 
 **Tests**: 43 new tests across 2 files. **Test count**: 3648 passing, 6 skipped.
+
+## TVE Phase D: Hardening, Probe Isolation & Startup Wiring
+
+**Date**: 2026-03-30. **Status**: Phase D complete.
+
+### Probe Metric Isolation
+- TVE probes increment `TVE_PROBES_TOTAL` (new Prometheus counter with `run_type` label), NOT `REQUESTS_TOTAL`
+- Prevents TVE internal probes from inflating production traffic metrics
+
+### Cryptographic Nonce Security
+- `route_batch()` generates 32-byte hex nonce per batch, registers with `main._active_tve_nonces`
+- `route_probe()` self-manages temporary nonce when called standalone (no caller-provided nonce)
+- TVE header format: `probe_id:nonce` — nonce validated against active set before synthetic response
+- Invalid/missing/spoofed nonces fall through to normal pipeline (not treated as TVE)
+- External requests (X-Forwarded-For) have TVE header stripped regardless of nonce validity
+
+### Library Protection
+- HealthSummary and ComplianceEvidence contain no raw probe text (validated by tests)
+- ResponseEmitter detection failure events include `probe_id` but never raw `text`/`content`
+
+### Public API
+- `engine.get_last_report()` public method replaces direct `_last_report` access
+- Dashboard endpoint updated to use public API
+
+### Production Startup Wiring
+- TVE engine, scheduler, and compliance reporter initialized in FastAPI lifespan
+- `AEGIS_TESTING=1` environment variable prevents scheduler auto-start during tests
+- TVE initialization failure is non-fatal (logged, does not crash app)
+- Scheduler stopped gracefully in shutdown section
+
+### Module Changes
+
+| Module | Changes |
+|--------|---------|
+| `middleware/metrics.py` | Added `TVE_PROBES_TOTAL` counter with `run_type` label |
+| `layers/thymic/layer_probe_router.py` | Nonce parameter on `route_probe`, self-managed nonce for standalone calls, batch nonce lifecycle |
+| `layers/thymic/engine.py` | `get_last_report()` public method |
+| `main.py` | `_active_tve_nonces` set, `register/unregister_tve_nonce()`, nonce validation in TVE interception, lifespan startup/shutdown wiring, `AEGIS_TESTING` guard |
+| `tests/conftest.py` | `AEGIS_TESTING=1` environment default |
+
+### Phase D Tests
+
+| File | Count | Coverage |
+|------|-------|---------|
+| `tests/test_thymic_hardening.py` | 25 | Metric isolation (counter exists, labels), nonce management (register/unregister/empty/safe), nonce validation (valid→synthetic, invalid→normal, missing→normal, spoofed→stripped), library protection (health/compliance/post-run no probe text), public API (None/after-run/updates), startup wiring (AEGIS_TESTING, disabled, globals, graceful failure), event truncation (probe_id present, no raw text), end-to-end security (full cycle, verdict for spot/comprehensive/post-change/stress) |
+
+**Tests**: 25 new tests. **Test count**: 3673 passing, 6 skipped.
+
+---
+
+### TVE Summary — All Phases
+
+| Phase | Focus | New Modules | New Tests |
+|-------|-------|-------------|-----------|
+| A | Core engine, probe generation, ASGI routing | 6 | 89 |
+| B | Telemetry, verdicts, response emitter | 3 | 61 |
+| C | Operational modes, scheduling, compliance | 2 | 43 |
+| D | Hardening, nonce security, startup wiring | 0 (modifications) | 25 |
+| **Total** | | **11 modules** | **218 tests** |
+
+**Final TVE module inventory** (11 files in `layers/thymic/`):
+`__init__.py`, `engine.py`, `probe_generator.py`, `mutation_engine.py`, `attack_profile_library.py`, `layer_probe_router.py`, `telemetry_collector.py`, `verdict_analyzer.py`, `response_emitter.py`, `scheduler.py`, `compliance_reporter.py`
+
+**TVE endpoints**: `GET /v1/tve/health`, `GET /v1/tve/compliance`

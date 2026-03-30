@@ -9,6 +9,7 @@ import asyncio
 import os
 
 os.environ.setdefault("AEGIS_SKIP_MODEL_LOAD", "true")
+os.environ.setdefault("AEGIS_TESTING", "1")
 
 
 def pytest_runtest_setup(item):

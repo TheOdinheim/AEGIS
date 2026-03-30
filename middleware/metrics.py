@@ -36,6 +36,12 @@ REQUESTS_TOTAL = Counter(
     ["method", "endpoint", "status"],
 )
 
+TVE_PROBES_TOTAL = Counter(
+    "aegis_tve_probes_total",
+    "Total TVE probes processed",
+    ["run_type"],
+)
+
 REQUEST_LATENCY = Histogram(
     "aegis_request_latency_seconds",
     "End-to-end request latency",

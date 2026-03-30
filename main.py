@@ -110,6 +110,7 @@ from aegis.middleware.metrics import (
     RATE_LIMIT_TRIGGERS,
     REQUEST_LATENCY,
     REQUESTS_TOTAL,
+    TVE_PROBES_TOTAL,
     TENANT_REQUESTS,
     THREAT_LEVEL,
     THREATS_DETECTED,
@@ -1063,8 +1064,55 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _dashboard_metrics_buffer = MetricsBuffer()
     await _dashboard_metrics_buffer.start()
 
+    # --- TVE Initialization (L9 Thymic Validation Engine) ---
+    global _tve_engine, _tve_compliance_reporter, _tve_scheduler
+    if _config.tve_enabled and not os.environ.get("AEGIS_TESTING"):
+        try:
+            from aegis.layers.thymic.engine import ThymicValidationEngine
+            from aegis.layers.thymic.attack_profile_library import AttackProfileLibrary
+            from aegis.layers.thymic.layer_probe_router import LayerProbeRouter
+            from aegis.layers.thymic.telemetry_collector import TelemetryCollector
+            from aegis.layers.thymic.verdict_analyzer import VerdictAnalyzer
+            from aegis.layers.thymic.response_emitter import ResponseEmitter
+            from aegis.layers.thymic.compliance_reporter import ComplianceReporter
+            from aegis.layers.thymic.scheduler import ThymicScheduler
+
+            tve_library = AttackProfileLibrary()
+            tve_router = LayerProbeRouter(app=app, api_key=_config.api_key, concurrency=_config.tve_concurrency)
+            tve_telemetry = TelemetryCollector()
+            tve_verdict = VerdictAnalyzer()
+            tve_emitter = ResponseEmitter(event_bus=_event_bus)
+            _tve_engine = ThymicValidationEngine(
+                library=tve_library,
+                router=tve_router,
+                telemetry=tve_telemetry,
+                verdict_analyzer=tve_verdict,
+                response_emitter=tve_emitter,
+            )
+            _tve_compliance_reporter = ComplianceReporter()
+            _tve_scheduler = ThymicScheduler(
+                engine=_tve_engine,
+                spot_check_interval_minutes=_config.tve_spot_check_interval_minutes,
+                sweep_interval_hours=_config.tve_sweep_interval_hours,
+                adaptive_decay_threshold=_config.tve_adaptive_decay_threshold,
+                stress_max_concurrency=_config.tve_stress_max_concurrency,
+                probes_per_tier=_config.tve_spot_check_probes_per_tier,
+            )
+            await _tve_scheduler.start()
+            logger.info("TVE scheduler started (spot=%dm, sweep=%dh)",
+                         _config.tve_spot_check_interval_minutes, _config.tve_sweep_interval_hours)
+        except Exception as e:
+            logger.error("TVE initialization failed (non-fatal): %s", e)
+            _tve_engine = None
+            _tve_compliance_reporter = None
+            _tve_scheduler = None
+
     logger.info("AEGIS proxy initialized — all layers active (event bus: %s)", _event_bus.backend)
     yield
+
+    # Stop TVE scheduler
+    if _tve_scheduler:
+        await _tve_scheduler.stop()
 
     # Stop dashboard metrics buffer
     if _dashboard_metrics_buffer:
@@ -1454,6 +1502,20 @@ async def taxonomy_stats(request: Request) -> Response:
 # Module-level TVE state (wired externally or via scheduler)
 _tve_engine: "ThymicValidationEngine | None" = None  # type: ignore[name-defined]  # noqa: F821
 _tve_compliance_reporter: "ComplianceReporter | None" = None  # type: ignore[name-defined]  # noqa: F821
+_tve_scheduler: "ThymicScheduler | None" = None  # type: ignore[name-defined]  # noqa: F821
+
+# TVE probe nonce management — prevents external spoofing of TVE headers
+_active_tve_nonces: set[str] = set()
+
+
+def register_tve_nonce(nonce: str) -> None:
+    """Register a nonce for an active TVE probe batch."""
+    _active_tve_nonces.add(nonce)
+
+
+def unregister_tve_nonce(nonce: str) -> None:
+    """Unregister a nonce after a TVE probe batch completes."""
+    _active_tve_nonces.discard(nonce)
 
 
 @app.get("/v1/tve/health")
@@ -1497,8 +1559,8 @@ async def tve_compliance(request: Request) -> Response:
     summary = _tve_engine.get_health_summary()
     if summary.last_run_id is None:
         return JSONResponse(content={"status": "no_data", "reason": "No validation runs completed"})
-    # Get last report from engine
-    report = _tve_engine._last_report
+    # Get last report from engine (public API)
+    report = _tve_engine.get_last_report()
     if report is None:
         return JSONResponse(content={"status": "no_data", "reason": "No validation report available"})
     evidence = _tve_compliance_reporter.generate_evidence(report)
@@ -3519,28 +3581,36 @@ async def _process_request(request: Request, request_id: str) -> Response:
     # If this request is a Thymic Validation Engine probe, return a synthetic
     # response instead of forwarding to upstream. L1/L2/L3/L6/L7 have already
     # run, so detection telemetry is captured. Zero upstream model calls.
-    tve_probe_id = headers.get("x-aegis-tve-probe")
-    if tve_probe_id:
-        # Cancel adaptive task — it has already been created
-        adaptive_report = await adaptive_task
-        # Check adaptive block
-        if adaptive_report and adaptive_report.should_block:
-            return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
-        # Return synthetic response (no model call)
-        synthetic = {
-            "id": f"chatcmpl-tve-{request_id[:8]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": body.get("model", "tve-synthetic"),
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "[TVE synthetic response — no upstream call]"},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        }
-        REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="200").inc()
-        return JSONResponse(content=synthetic)
+    tve_header = headers.get("x-aegis-tve-probe")
+    if tve_header:
+        # Validate nonce — parse "probe_id:nonce" format
+        tve_probe_id = tve_header
+        tve_nonce = None
+        if ":" in tve_header:
+            tve_probe_id, tve_nonce = tve_header.rsplit(":", 1)
+        # Only treat as TVE probe if nonce is valid (prevents external spoofing)
+        if tve_nonce and tve_nonce in _active_tve_nonces:
+            # Cancel adaptive task — it has already been created
+            adaptive_report = await adaptive_task
+            # Check adaptive block
+            if adaptive_report and adaptive_report.should_block:
+                return _block_response(request_id, "Request blocked by AEGIS adaptive analysis.")
+            # Return synthetic response (no model call)
+            synthetic = {
+                "id": f"chatcmpl-tve-{request_id[:8]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": body.get("model", "tve-synthetic"),
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "[TVE synthetic response — no upstream call]"},
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+            # TVE probes increment TVE counter, NOT production REQUESTS_TOTAL
+            TVE_PROBES_TOTAL.labels(run_type="validation").inc()
+            return JSONResponse(content=synthetic)
 
     if is_streaming:
         return await _handle_streaming(
