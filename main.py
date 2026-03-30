@@ -3158,6 +3158,16 @@ async def _process_request(request: Request, request_id: str) -> Response:
     xff = request.headers.get("x-forwarded-for")
     if "x-aegis-tve-probe" in headers and xff:
         headers.pop("x-aegis-tve-probe", None)
+
+    # --- Determine if this is a valid TVE probe (for metric isolation) ---
+    # TVE probes should NOT contaminate production metrics, audit logs,
+    # or threat intelligence when they are blocked by innate/MTMD/policy.
+    _is_tve_probe = False
+    _tve_header_val = headers.get("x-aegis-tve-probe")
+    if _tve_header_val and ":" in _tve_header_val:
+        _tve_nonce_part = _tve_header_val.rsplit(":", 1)[1]
+        _is_tve_probe = bool(_tve_nonce_part and _tve_nonce_part in _active_tve_nonces)
+
     raw_body = await get_raw_body(request)
     is_streaming = body.get("stream", False)
 
@@ -3353,45 +3363,50 @@ async def _process_request(request: Request, request_id: str) -> Response:
     _record_signature_matches(innate_report, context.prompt_text)
 
     if innate_report.should_block:
-        for cat in innate_report.threat_categories:
-            THREATS_DETECTED.labels(layer="innate", category=cat.value).inc()
-        BLOCKS_TOTAL.labels(layer="innate", reason="threshold_exceeded").inc()
-        _healing.quarantine.record_adversarial_event(context.session_id)
-        # Record block for multi-turn rapid-fire detection
-        if _adaptive:
-            _adaptive.multi_turn.record_block(context.session_id)
-        QUARANTINED_SESSIONS.set(len(_healing.quarantine.quarantined_sessions))
-        if _audit:
-            _audit.log(
-                request_id, "innate", "block",
-                tenant_id=context.tenant_id,
-                source_ip=source_ip,
-                session_id=context.session_id,
-                threat_categories=[c.value for c in innate_report.threat_categories],
-                confidence=innate_report.max_confidence,
-                latency_ms=innate_report.total_latency_ms,
+        if _is_tve_probe:
+            # TVE probe blocked by innate — this is expected detection telemetry.
+            # Skip production metrics, audit, quarantine, taxonomy to prevent contamination.
+            TVE_PROBES_TOTAL.labels(run_type="validation").inc()
+        else:
+            for cat in innate_report.threat_categories:
+                THREATS_DETECTED.labels(layer="innate", category=cat.value).inc()
+            BLOCKS_TOTAL.labels(layer="innate", reason="threshold_exceeded").inc()
+            _healing.quarantine.record_adversarial_event(context.session_id)
+            # Record block for multi-turn rapid-fire detection
+            if _adaptive:
+                _adaptive.multi_turn.record_block(context.session_id)
+            QUARANTINED_SESSIONS.set(len(_healing.quarantine.quarantined_sessions))
+            if _audit:
+                _audit.log(
+                    request_id, "innate", "block",
+                    tenant_id=context.tenant_id,
+                    source_ip=source_ip,
+                    session_id=context.session_id,
+                    threat_categories=[c.value for c in innate_report.threat_categories],
+                    confidence=innate_report.max_confidence,
+                    latency_ms=innate_report.total_latency_ms,
+                )
+            _fire_pg_audit(
+                request_id, body=body, context=context,
+                innate_report=innate_report, final_action="block",
+                block_reason="innate_threshold_exceeded",
+                latency_total_ms=(time.perf_counter() - time.perf_counter()) * 1000,
             )
-        _fire_pg_audit(
-            request_id, body=body, context=context,
-            innate_report=innate_report, final_action="block",
-            block_reason="innate_threshold_exceeded",
-            latency_total_ms=(time.perf_counter() - time.perf_counter()) * 1000,
-        )
-        REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
-        TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
-        _record_distillation_interaction(context, was_blocked=True, block_reason="innate_threshold")
-        if _jailbreak_taxonomy:
-            _jailbreak_taxonomy.log_attempt(
-                source_id=context.api_key_hash or context.source_ip,
-                session_id=context.session_id,
-                detection_layer="innate",
-                confidence=innate_report.max_confidence,
-                blocked=True,
-                pattern_ids=[
-                    sr.scanner_id for sr in (innate_report.scanner_results or [])
-                    if sr.is_threat
-                ],
-            )
+            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            _record_distillation_interaction(context, was_blocked=True, block_reason="innate_threshold")
+            if _jailbreak_taxonomy:
+                _jailbreak_taxonomy.log_attempt(
+                    source_id=context.api_key_hash or context.source_ip,
+                    session_id=context.session_id,
+                    detection_layer="innate",
+                    confidence=innate_report.max_confidence,
+                    blocked=True,
+                    pattern_ids=[
+                        sr.scanner_id for sr in (innate_report.scanner_results or [])
+                        if sr.is_threat
+                    ],
+                )
         _collect_fl_training_sample(context, is_threat=True, confidence=innate_report.max_confidence)
         return _block_response(request_id, "Request blocked by AEGIS innate detection.")
 
@@ -3416,26 +3431,29 @@ async def _process_request(request: Request, request_id: str) -> Response:
             for sig in mtmd_report.signals:
                 MANIPULATION_SIGNALS.labels(signal_type=sig.signal_type.value).inc()
         if mtmd_report.should_block:
-            MANIPULATION_BLOCKS.inc()
-            BLOCKS_TOTAL.labels(layer="manipulation", reason="mtmd_threshold").inc()
-            if _audit:
-                _audit.log(
-                    request_id, "manipulation", "block",
-                    tenant_id=context.tenant_id,
-                    session_id=context.session_id,
-                    confidence=mtmd_report.manipulation_score,
-                )
-            if _jailbreak_taxonomy:
-                _jailbreak_taxonomy.log_attempt(
-                    source_id=context.api_key_hash or context.source_ip,
-                    session_id=context.session_id,
-                    detection_layer="manipulation",
-                    confidence=mtmd_report.manipulation_score,
-                    blocked=True,
-                    mtmd_signal_types=[s.signal_type.value for s in mtmd_report.signals],
-                )
-            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
-            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            if _is_tve_probe:
+                TVE_PROBES_TOTAL.labels(run_type="validation").inc()
+            else:
+                MANIPULATION_BLOCKS.inc()
+                BLOCKS_TOTAL.labels(layer="manipulation", reason="mtmd_threshold").inc()
+                if _audit:
+                    _audit.log(
+                        request_id, "manipulation", "block",
+                        tenant_id=context.tenant_id,
+                        session_id=context.session_id,
+                        confidence=mtmd_report.manipulation_score,
+                    )
+                if _jailbreak_taxonomy:
+                    _jailbreak_taxonomy.log_attempt(
+                        source_id=context.api_key_hash or context.source_ip,
+                        session_id=context.session_id,
+                        detection_layer="manipulation",
+                        confidence=mtmd_report.manipulation_score,
+                        blocked=True,
+                        mtmd_signal_types=[s.signal_type.value for s in mtmd_report.signals],
+                    )
+                REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+                TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
             return _block_response(request_id, "Request blocked by AEGIS manipulation detection.")
 
     # --- Adaptive rate limiter: adjust based on manipulation risk ---
@@ -3450,10 +3468,13 @@ async def _process_request(request: Request, request_id: str) -> Response:
             source_id, risk_score, manipulation_flagged,
         )
         if not rate_decision.allowed:
-            ADAPTIVE_RATE_HARD_STOPS.inc()
-            BLOCKS_TOTAL.labels(layer="adaptive_rate", reason=rate_decision.reason).inc()
-            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="429").inc()
-            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            if _is_tve_probe:
+                TVE_PROBES_TOTAL.labels(run_type="validation").inc()
+            else:
+                ADAPTIVE_RATE_HARD_STOPS.inc()
+                BLOCKS_TOTAL.labels(layer="adaptive_rate", reason=rate_decision.reason).inc()
+                REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="429").inc()
+                TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
             return JSONResponse(
                 status_code=429,
                 content={
@@ -3504,25 +3525,28 @@ async def _process_request(request: Request, request_id: str) -> Response:
 
     if not quick_decision.is_allowed:
         adaptive_task.cancel()
-        BLOCKS_TOTAL.labels(layer="policy", reason=quick_decision.action.value).inc()
-        _healing.quarantine.record_adversarial_event(context.session_id)
-        QUARANTINED_SESSIONS.set(len(_healing.quarantine.quarantined_sessions))
-        if _audit:
-            _audit.log(
-                request_id, "policy", "block",
-                tenant_id=context.tenant_id,
-                source_ip=source_ip,
-                session_id=context.session_id,
-                decision_context={"action": quick_decision.action.value},
+        if _is_tve_probe:
+            TVE_PROBES_TOTAL.labels(run_type="validation").inc()
+        else:
+            BLOCKS_TOTAL.labels(layer="policy", reason=quick_decision.action.value).inc()
+            _healing.quarantine.record_adversarial_event(context.session_id)
+            QUARANTINED_SESSIONS.set(len(_healing.quarantine.quarantined_sessions))
+            if _audit:
+                _audit.log(
+                    request_id, "policy", "block",
+                    tenant_id=context.tenant_id,
+                    source_ip=source_ip,
+                    session_id=context.session_id,
+                    decision_context={"action": quick_decision.action.value},
+                )
+            _fire_pg_audit(
+                request_id, body=body, context=context,
+                innate_report=innate_report, final_action="block",
+                block_reason=f"policy_{quick_decision.action.value}",
             )
-        _fire_pg_audit(
-            request_id, body=body, context=context,
-            innate_report=innate_report, final_action="block",
-            block_reason=f"policy_{quick_decision.action.value}",
-        )
-        REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
-        TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
-        _record_distillation_interaction(context, was_blocked=True, block_reason="policy")
+            REQUESTS_TOTAL.labels(method="POST", endpoint="/v1/chat/completions", status="403").inc()
+            TENANT_REQUESTS.labels(tenant_id=context.tenant_id, status="blocked").inc()
+            _record_distillation_interaction(context, was_blocked=True, block_reason="policy")
         return _block_response(request_id, quick_decision.block_message)
 
     # --- L7 Circuit Breaker check ---

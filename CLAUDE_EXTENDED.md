@@ -1652,7 +1652,7 @@ Per-layer stability scores track consecutive passing sweeps. After `tve_adaptive
 
 ---
 
-### TVE Summary — All Phases
+### TVE Summary — All Phases (including Red Team)
 
 | Phase | Focus | New Modules | New Tests |
 |-------|-------|-------------|-----------|
@@ -1660,9 +1660,36 @@ Per-layer stability scores track consecutive passing sweeps. After `tve_adaptive
 | B | Telemetry, verdicts, response emitter | 3 | 61 |
 | C | Operational modes, scheduling, compliance | 2 | 43 |
 | D | Hardening, nonce security, startup wiring | 0 (modifications) | 25 |
-| **Total** | | **11 modules** | **218 tests** |
+| Red Team | Adversarial hardening, metric isolation fix | 0 (modifications) | 33 |
+| **Total** | | **11 modules** | **251 tests** |
 
 **Final TVE module inventory** (11 files in `layers/thymic/`):
 `__init__.py`, `engine.py`, `probe_generator.py`, `mutation_engine.py`, `attack_profile_library.py`, `layer_probe_router.py`, `telemetry_collector.py`, `verdict_analyzer.py`, `response_emitter.py`, `scheduler.py`, `compliance_reporter.py`
 
 **TVE endpoints**: `GET /v1/tve/health`, `GET /v1/tve/compliance`
+
+## TVE Red Team Hardening
+
+**Date**: 2026-03-30. **Status**: Complete. 33 attack vectors tested, 1 finding fixed.
+
+### Finding: Production Metric Contamination (AV-3.1) — Severity: Medium
+
+**Attack**: TVE Tier 1 attack probes routed through the ASGI pipeline get blocked by innate detection (L2). The innate block path incremented `REQUESTS_TOTAL`, wrote audit log entries, recorded quarantine events, and logged to jailbreak taxonomy — all BEFORE the TVE interception point. This contaminated production metrics with TVE probe traffic.
+
+**Impact**: Production dashboards would show inflated threat detection counts. Audit logs would contain TVE probe blocks indistinguishable from real attacks. Quarantine sessions affected by TVE probe volume.
+
+**Fix**: Added `_is_tve_probe` flag computed early in `_process_request()` by checking the TVE header for a valid nonce against `_active_tve_nonces`. Four block paths (innate, MTMD, adaptive rate limiter, policy engine) now check this flag — TVE probes increment `TVE_PROBES_TOTAL` instead of `REQUESTS_TOTAL` and skip audit logging, quarantine, taxonomy, and distillation recording.
+
+### Attack Vectors Tested
+
+| AV | Category | Tests | Status |
+|----|----------|-------|--------|
+| AV-1 | Probe upstream leakage | 4 | All defended |
+| AV-2 | Nonce forgery & edge cases | 8 | All defended |
+| AV-3 | Metric & rate limit contamination | 5 | 1 finding fixed (AV-3.1) |
+| AV-4 | Library exfiltration | 4 | All defended |
+| AV-5 | Resource exhaustion | 5 | All defended |
+| AV-6 | Verdict manipulation | 3 | All defended |
+| AV-7 | Scheduler abuse | 4 | All defended |
+
+**Tests**: 33 new tests in `tests/test_thymic_red_team.py`. **Test count**: 3706 passing, 6 skipped.
